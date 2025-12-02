@@ -9,6 +9,8 @@ import (
 type RouteKey string
 
 var Routes = struct {
+	Welcome RouteKey
+
 	RegistrationInit  RouteKey
 	RegistrationFinal RouteKey
 	LoginConfigs      RouteKey
@@ -31,6 +33,8 @@ var Routes = struct {
 	TestUpload   RouteKey
 	TestDownload RouteKey
 }{
+	Welcome: "Welc",
+
 	RegistrationInit:  "RegInit",
 	RegistrationFinal: "RegFinal",
 	LoginConfigs:      "LogCfg",
@@ -92,6 +96,12 @@ func (s *Core) register(domainStr string) error {
 
 	s.domain = domain
 	s.routes = map[RouteKey]*Route{
+		Routes.Welcome: {
+			Method: http.MethodGet,
+			RPath:  "public/welcome",
+			Auth:   false,
+		},
+
 		Routes.RegistrationInit: {
 			Method: http.MethodPost,
 			RPath:  "public/bucket/create/s1",

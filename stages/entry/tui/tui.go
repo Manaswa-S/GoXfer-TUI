@@ -5,6 +5,7 @@ import (
 	"goxfer/tui/consts/pages"
 	"goxfer/tui/stages/entry"
 	"strings"
+	"time"
 
 	"github.com/rivo/tview"
 )
@@ -28,7 +29,7 @@ type AppTUI struct {
 type Updater struct {
 	switchPage  func(string)
 	setStatus   func(string)
-	setError    func(string)
+	setError    func(string, int)
 	setConfirm  func(string)
 	switchStage func(string)
 }
@@ -95,12 +96,27 @@ func (ui *AppTUI) SwitchTo(name string) {
 	ui.setTips(name)
 }
 
-func (ui *AppTUI) SetError(errTxt string) {
-	ui.layout.errorText.SetText(errTxt)
+func (ui *AppTUI) SetError(errTxt string, delay int) {
+	f := func() {
+		ui.layout.errorText.SetText(errTxt)
+	}
+	ui.app.QueueUpdateDraw(f)
+	go func() {
+		if delay < 1 {
+			delay = 5
+		}
+		time.Sleep(time.Duration(delay) * time.Second)
+		ui.app.QueueUpdateDraw(func() {
+			ui.layout.errorText.SetText("")
+		})
+	}()
 }
 
 func (ui *AppTUI) SetStatus(txt string) {
-	ui.layout.statusText.SetText(txt)
+	f := func() {
+		ui.layout.statusText.SetText(txt)
+	}
+	ui.app.QueueUpdateDraw(f)
 }
 
 func (ui *AppTUI) SetConfirm(txt string) {
@@ -109,11 +125,6 @@ func (ui *AppTUI) SetConfirm(txt string) {
 
 func (ui *AppTUI) SetSwitchStage(fn func(string)) {
 	ui.updater.switchStage = fn
-}
-
-type Tip struct {
-	ShortCut string
-	Label    string
 }
 
 func (ui *AppTUI) setTips(name string) {

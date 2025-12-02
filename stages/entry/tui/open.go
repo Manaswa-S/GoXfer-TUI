@@ -14,8 +14,7 @@ type Open struct {
 	service *entry.Service
 	updater *Updater
 
-	// Elements for the search key
-	form *tview.Form
+	openForm *tview.Form
 }
 
 func newOpen(app *tview.Application, service *entry.Service, updater *Updater) *Open {
@@ -34,28 +33,25 @@ func (s *Open) buildOpen() {
 }
 
 func (s *Open) addItems() {
-	s.form = tview.NewForm().
+	s.openForm = tview.NewForm().
 		AddInputField("Bucket Key :", "", 30, nil, nil).
 		AddInputField("Password :", "", 30, nil, nil).
 		AddCheckbox("Remember? :", false, nil).
 		AddButton("Cancel", func() { s.updater.switchPage(pages.Entry.MENU) }).
 		AddButton("Open", func() {
-			s.app.SetFocus(nil)
-			s.updater.setStatus("Opening ...")
 			go s.openBucket()
 		})
-	s.form.SetBorder(true).SetTitle("Open Bucket").SetTitleAlign(tview.AlignLeft)
+	s.openForm.SetBorder(true).SetTitle("Open Bucket").SetTitleAlign(tview.AlignLeft)
 
 	creds := s.service.GetSavedCreds()
 	if len(creds) > 0 {
 		options := make([]string, len(creds))
 		for i, cred := range creds {
-			options[i] = cred.Key
+			options[i] = string(cred.Key)
 		}
-		s.form.AddFormItem(tview.NewDropDown().SetLabel("Saved :").SetOptions(options, func(option string, optionIndex int) {
-			s.form.GetFormItemByLabel("Bucket Key :").(*tview.InputField).SetText(creds[optionIndex].Key)
-			s.form.GetFormItemByLabel("Password :").(*tview.InputField).SetText(creds[optionIndex].Pass)
-
+		s.openForm.AddFormItem(tview.NewDropDown().SetLabel("Saved :").SetOptions(options, func(option string, optionIndex int) {
+			s.openForm.GetFormItemByLabel("Bucket Key :").(*tview.InputField).SetText(string(creds[optionIndex].Key))
+			s.openForm.GetFormItemByLabel("Password :").(*tview.InputField).SetText(string(creds[optionIndex].Pass))
 			s.service.UsedCreds(creds[optionIndex].Key)
 		}).SetCurrentOption(0))
 	}
@@ -68,8 +64,6 @@ func (s *Open) setShortcuts() {
 		if event.Modifiers() == tcell.ModAlt {
 			switch event.Rune() {
 			case 'O', 'o':
-				s.app.SetFocus(nil)
-				s.updater.setStatus("Opening ...")
 				go s.openBucket()
 			case 'C', 'c':
 				s.updater.switchPage(pages.Entry.MENU)
@@ -81,28 +75,28 @@ func (s *Open) setShortcuts() {
 
 func (c *Open) setFlex() {
 	c.flex.
-		AddItem(c.form, 0, 1, true)
+		AddItem(c.openForm, 0, 1, true)
 }
 
 func (s *Open) openBucket() {
-	s.app.SetFocus(nil)
+	s.app.QueueUpdateDraw(func() {
+		s.app.SetFocus(nil)
+	})
 	s.updater.setStatus("Opening ...")
-	bucKey := []byte(s.form.GetFormItemByLabel("Bucket Key :").(*tview.InputField).GetText())
-	pwd := []byte(s.form.GetFormItemByLabel("Password :").(*tview.InputField).GetText())
-	remember := s.form.GetFormItemByLabel("Remember? :").(*tview.Checkbox).IsChecked()
+	defer s.updater.setStatus("")
+
+	bucKey := []byte(s.openForm.GetFormItemByLabel("Bucket Key :").(*tview.InputField).GetText())
+	pwd := []byte(s.openForm.GetFormItemByLabel("Password :").(*tview.InputField).GetText())
+	remember := s.openForm.GetFormItemByLabel("Remember? :").(*tview.Checkbox).IsChecked()
 	if remember {
-		// TODO: needs to be []byte()
-		s.service.SaveCreds(entry.Remember{
-			Key:  string(bucKey),
-			Pass: string(pwd),
+		s.service.SaveCreds(&entry.Remember{
+			Key:  bucKey,
+			Pass: pwd,
 		})
 	}
 
-	_, errf := s.service.OpenBucket(pwd, bucKey)
-	if errf != nil {
-		panic(errf.Message + errf.Error.Error())
-		s.updater.setError(errf.Message)
-		s.updater.setStatus(errf.Error.Error())
+	if err := s.service.OpenBucket(pwd, bucKey); err != nil {
+		s.updater.setError(err.Error(), 0)
 		s.updater.switchPage(pages.Entry.MENU)
 		return
 	}

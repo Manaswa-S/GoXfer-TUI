@@ -2,8 +2,10 @@ package entry
 
 import (
 	"encoding/json"
+	"fmt"
 	"goxfer/tui/consts/errs"
 	"goxfer/tui/core"
+	"goxfer/tui/logger"
 	"goxfer/tui/stages/auxiliary"
 	"goxfer/tui/utils"
 
@@ -11,33 +13,45 @@ import (
 )
 
 type Service struct {
+	logger   logger.Logger
 	core     *core.Core
 	creds    *CredsManager
 	settings *auxiliary.Settings
 }
 
-func NewService(core *core.Core, creds *CredsManager, settings *auxiliary.Settings) *Service {
+func NewService(logger logger.Logger, core *core.Core, creds *CredsManager, settings *auxiliary.Settings) *Service {
 	return &Service{
+		logger:   logger,
 		core:     core,
 		creds:    creds,
 		settings: settings,
 	}
 }
 
+func (s *Service) emitErr(errf *errs.Errorf) error {
+	s.logger.Log(logger.ErrorLevel, "%v: %v: %v: %v", errf.Type, errf.Error, errf.Message, errf.ReturnRaw)
+	return fmt.Errorf("%s", errf.Message)
+}
+
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-func (s *Service) CreateBucket(pwd []byte, name string) (*CreateBucketS2Resp, *errs.Errorf) {
+func (s *Service) CreateBucket(pwd []byte, name string) (*CreateBucketS2Resp, error) {
 	if recommendation := utils.VerifyPassFormat(pwd); recommendation != "" {
-		return nil, &errs.Errorf{}
+		return nil, s.emitErr(&errs.Errorf{
+			Message: recommendation,
+		})
 	}
-
+	errMsg := "Failed to initiate new bucket. Try Again!"
 	// Try not to clear pwd too early as internals of 'opaque' do not copy but
 	// use the same instance of pwd, and clearing pwd can cause empty passwords
 	defer clear(pwd)
 
 	cipher, err := s.core.NewBucket(pwd)
 	if err != nil {
-		return nil, &errs.Errorf{Error: err}
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 
 	// TODO: get config from server ??
@@ -45,7 +59,10 @@ func (s *Service) CreateBucket(pwd []byte, name string) (*CreateBucketS2Resp, *e
 	conf := opaque.DefaultConfiguration()
 	client, err := conf.Client()
 	if err != nil {
-		return nil, &errs.Errorf{Error: err}
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 	c1 := client.RegistrationInit(pwd)
 
@@ -54,23 +71,36 @@ func (s *Service) CreateBucket(pwd []byte, name string) (*CreateBucketS2Resp, *e
 	}
 	s1ReqBytes, err := json.Marshal(s1Req)
 	if err != nil {
-		return nil, &errs.Errorf{Error: err}
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 	_, respBody, err := s.core.Hit(core.Routes.RegistrationInit, nil, nil,
 		&core.BodyParams{ConType: core.ConType.JSON, Body: s1ReqBytes})
 	if err != nil {
-		return nil, &errs.Errorf{Error: err}
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 	data := new(CreateBucketS1Resp)
 	err = json.Unmarshal(respBody, data)
 	if err != nil {
-		return nil, &errs.Errorf{Error: err}
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 
+	errMsg = "Failed to finalize new bucket. Try Again!"
 	// OPAQUE: step 2
 	response, err := client.Deserialize.RegistrationResponse(utils.DecodeBase64(data.S1Resp))
 	if err != nil {
-		return nil, &errs.Errorf{Error: err}
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 	record, _ := client.RegistrationFinalize(response, opaque.ClientRegistrationFinalizeOptions{
 		ClientIdentity: []byte(name),
@@ -85,62 +115,82 @@ func (s *Service) CreateBucket(pwd []byte, name string) (*CreateBucketS2Resp, *e
 	}
 	s2ReqByte, err := json.Marshal(s2Req)
 	if err != nil {
-		return nil, &errs.Errorf{Error: err}
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 	_, respBody, err = s.core.Hit(core.Routes.RegistrationFinal, nil, nil,
 		&core.BodyParams{ConType: core.ConType.JSON, Body: s2ReqByte})
 	if err != nil {
-		return nil, &errs.Errorf{}
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 	finalData := new(CreateBucketS2Resp)
 	err = json.Unmarshal(respBody, finalData)
 	if err != nil {
-		return nil, &errs.Errorf{Error: err}
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 
 	return finalData, nil
 }
 
-func (s *Service) FetchOpaqueConfigs() (*GetOpaqueConfigs, *errs.Errorf) {
+func (s *Service) FetchOpaqueConfigs() (*GetOpaqueConfigs, error) {
+	errMsg := "Failed to get configs from server."
 	_, respBody, err := s.core.Hit(core.Routes.LoginConfigs, nil, nil, nil)
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "Get error.",
+		return nil, s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 
 	configs := new(GetOpaqueConfigs)
 	err = json.Unmarshal(respBody, configs)
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "JSON unmarshall error.",
+		return nil, s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 
 	return configs, nil
 }
 
-func (s *Service) OpenBucket(pwd, bucKey []byte) (*OpenBucketS2Resp, *errs.Errorf) {
+func (s *Service) OpenBucket(pwd, bucKey []byte) error {
 	if recommendation := utils.VerifyBucKeyFormat(bucKey); recommendation != "" {
-		return nil, &errs.Errorf{}
+		return s.emitErr(&errs.Errorf{
+			Message: recommendation,
+		})
 	}
+	defer clear(pwd)
+	errMsg := "Failed to open bucket."
 
-	configs, errf := s.FetchOpaqueConfigs()
-	if errf != nil {
-		return nil, errf
+	configs, err := s.FetchOpaqueConfigs()
+	if err != nil {
+		return s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to get opaque configs for opening bucket"),
+			Message: errMsg + " " + err.Error(),
+		})
 	}
 	conf, err := opaque.DeserializeConfiguration(utils.DecodeBase64(configs.Config))
 	if err != nil {
-		return nil, &errs.Errorf{}
+		return s.emitErr(&errs.Errorf{
+			Error:   err,
+			Message: errMsg,
+		})
 	}
 	client, err := conf.Client()
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "Opaque client build error.",
+		return s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 
 	// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -152,45 +202,45 @@ func (s *Service) OpenBucket(pwd, bucKey []byte) (*OpenBucketS2Resp, *errs.Error
 	}
 	s1ReqBytes, err := json.Marshal(s1Req)
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "Marhal error.",
+		return s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 	_, respBody, err := s.core.Hit(core.Routes.LoginInit, nil, nil,
 		&core.BodyParams{ConType: core.ConType.JSON, Body: s1ReqBytes})
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "Post error.",
+		return s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 	s1Resp := new(OpenBucketS1Resp)
 	err = json.Unmarshal(respBody, s1Resp)
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "S1 response unmarshal error.",
+		return s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 
 	// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 	ke2, err := client.Deserialize.KE2(utils.DecodeBase64(s1Resp.KE2))
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "KE2 deserialize error.",
+		return s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 	ke3, _, err := client.LoginFinish(ke2, opaque.ClientLoginFinishOptions{
-		ClientIdentity: []byte("test"),
-		ServerIdentity: []byte("goxfer-opaque-server-id"),
+		ClientIdentity: []byte(s1Resp.ClientID),
+		ServerIdentity: utils.DecodeBase64(configs.ServerID),
 	})
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "Login finish error.",
+		return s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 
 	s2Req := OpenBucketS2Req{
@@ -199,26 +249,26 @@ func (s *Service) OpenBucket(pwd, bucKey []byte) (*OpenBucketS2Resp, *errs.Error
 	}
 	s2ReqBytes, err := json.Marshal(s2Req)
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "S2 request marhal error.",
+		return s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 	_, respBody, err = s.core.Hit(core.Routes.LoginFinish, nil, nil,
 		&core.BodyParams{ConType: core.ConType.JSON, Body: s2ReqBytes})
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "Post error.",
+		return s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 	s2Resp := new(OpenBucketS2Resp)
 	err = json.Unmarshal(respBody, s2Resp)
 	if err != nil {
-		return nil, &errs.Errorf{
-			Message: "S2 response unmarshal error.",
+		return s.emitErr(&errs.Errorf{
 			Error:   err,
-		}
+			Message: errMsg,
+		})
 	}
 
 	// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -230,14 +280,13 @@ func (s *Service) OpenBucket(pwd, bucKey []byte) (*OpenBucketS2Resp, *errs.Error
 	if err != nil {
 		panic(err)
 	}
-	clear(pwd)
 
-	return &OpenBucketS2Resp{}, nil
+	return nil
 }
 
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// >>>
 
-func (s *Service) SaveCreds(creds Remember) {
+func (s *Service) SaveCreds(creds *Remember) {
 	s.creds.Set(creds)
 }
 
@@ -245,8 +294,6 @@ func (s *Service) GetSavedCreds() []Remember {
 	return s.creds.Get()
 }
 
-func (s *Service) UsedCreds(key string) {
+func (s *Service) UsedCreds(key []byte) {
 	s.creds.Used(key)
 }
-
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>

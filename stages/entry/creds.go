@@ -9,6 +9,7 @@ import (
 	"goxfer/tui/utils"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -30,21 +31,23 @@ type CredElem struct {
 }
 
 type Remember struct {
-	Key  string
-	Pass string
+	Key  []byte
+	Pass []byte
 }
 
-func (s *CredsManager) add(idx []byte, creds Remember) {
+func (s *CredsManager) add(idx string, creds *Remember) {
+	newKey := hex.EncodeToString(creds.Key)
+
 	entries := s.read()
 	for i, entry := range entries {
-		if entry.Key == creds.Key {
+		if strings.EqualFold(entry.Key, newKey) {
 			entries = append(entries[:i], entries[i+1:]...)
 		}
 	}
 
 	newEntry := CredElem{
-		Index:     hex.EncodeToString(idx),
-		Key:       creds.Key,
+		Index:     idx,
+		Key:       newKey,
 		CreatedAt: time.Now().Unix(),
 		Remember:  true,
 		Used:      1,
@@ -54,15 +57,15 @@ func (s *CredsManager) add(idx []byte, creds Remember) {
 }
 
 func (s *CredsManager) read() []CredElem {
+	entries := make([]CredElem, 0)
 	data, err := os.ReadFile(consts.CREDS_FILE_PATH)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return []CredElem{}
+			return entries
 		}
 		panic(err)
 	}
 
-	entries := make([]CredElem, 0)
 	valid := json.Valid(data)
 	if !valid {
 		s.save(entries)
@@ -89,15 +92,15 @@ func (s *CredsManager) save(entries []CredElem) {
 	}
 }
 
-func (s *CredsManager) Set(creds Remember) {
+func (s *CredsManager) Set(creds *Remember) {
 	idx, err := utils.Rand(16)
 	if err != nil {
 		panic(err)
 	}
+	newIdx := hex.EncodeToString(idx)
+	s.add(newIdx, creds)
 
-	s.add(idx, creds)
-
-	err = keyring.Set(consts.SERVICE_NAME_CREDS, hex.EncodeToString(idx), creds.Pass)
+	err = keyring.Set(consts.SERVICE_NAME_CREDS, newIdx, hex.EncodeToString(creds.Pass))
 	if err != nil {
 		panic(err)
 	}
@@ -115,19 +118,28 @@ func (s *CredsManager) Get() []Remember {
 		if err != nil {
 			continue
 		}
+		keyBytes, err := hex.DecodeString(entry.Key)
+		if err != nil {
+			panic(err)
+		}
+		passBytes, err := hex.DecodeString(pass)
+		if err != nil {
+			panic(err)
+		}
 		remember = append(remember, Remember{
-			Key:  entry.Key,
-			Pass: pass,
+			Key:  keyBytes,
+			Pass: passBytes,
 		})
 	}
 
 	return remember
 }
 
-func (s *CredsManager) Used(key string) {
+func (s *CredsManager) Used(key []byte) {
 	entries := s.read()
+	keyHex := hex.EncodeToString(key)
 	for i, entry := range entries {
-		if entry.Key == key {
+		if entry.Key == keyHex {
 			entries[i].Used++
 			break
 		}

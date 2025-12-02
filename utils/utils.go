@@ -27,9 +27,11 @@ func Rand(len int) ([]byte, error) {
 }
 
 func VerifyPassFormat(pwd []byte) string {
+	// TODO:
 	return ""
 }
 
 func VerifyBucKeyFormat(bucKey []byte) string {
+	// TODO:
 	return ""
 }

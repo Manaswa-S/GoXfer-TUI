@@ -4,10 +4,10 @@ package cipher
 // KEK: Key Encryption Key
 // WEK: Wrapped Encryption Key
 type Cipher interface {
-	GetKEK(pwd []byte) (kek, salt []byte, err error)
-	GetKEKWithSalt(pwd, salt []byte) (kek []byte, err error)
+	GetKEK(pwd []byte) (kek, salt []byte)
+	GetKEKWithSalt(pwd, salt []byte) (kek []byte)
 
-	GetCEK() (cek []byte, err error)
+	GetCEK() (cek []byte)
 	Wrap(kek, cek []byte) (wek, nonce []byte, err error)
 	UnWrap(wek, kek, nonce []byte) (cek []byte, err error)
 

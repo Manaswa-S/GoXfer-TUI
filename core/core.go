@@ -201,56 +201,6 @@ func (s *Core) Download(rKey RouteKey, queries QueryParams, downloadId string) (
 	return
 }
 
-// // Caller should close the body.
-// func (s *Core) Download(rKey RouteKey, queries QueryParams, conType ContentType, body []byte) (resp *http.Response, err error) {
-// 	route, ok := s.routes[rKey]
-// 	if !ok {
-// 		return nil, fmt.Errorf("not a valid route")
-// 	}
-
-// 	urlStr := route.URL
-// 	if len(queries) > 0 {
-// 		url, err := url.Parse(route.URL)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		q := url.Query()
-// 		for key, value := range queries {
-// 			q.Set(string(key), value)
-// 		}
-// 		url.RawQuery = q.Encode()
-// 		urlStr = url.String()
-// 	}
-
-// 	var reqBody io.Reader
-// 	if len(body) > 0 {
-// 		reqBody = bytes.NewBuffer(body)
-// 	}
-
-// 	req, err := http.NewRequest(route.Method, urlStr, reqBody)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	if route.Auth {
-// 		err = s.prepareReq(req, body)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 	}
-
-// 	if conType != ConType.Nil {
-// 		req.Header.Set("Content-Type", conType.String())
-// 	}
-
-// 	resp, err = s.client.Do(req)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	return
-// }
-
 func (s *Core) prepareReq(req *http.Request, body []byte) error {
 	if s.sessKey == nil || s.sessID == nil {
 		return fmt.Errorf("session key or id used before assignment")
@@ -300,15 +250,8 @@ type BucketCipher struct {
 }
 
 func (s *Core) NewBucket(pwd []byte) ([]byte, error) {
-	bkey, err := s.cipher.GetCEK()
-	if err != nil {
-		return nil, err
-	}
-
-	kek, kekSalt, err := s.cipher.GetKEK(pwd)
-	if err != nil {
-		return nil, err
-	}
+	bkey := s.cipher.GetCEK()
+	kek, kekSalt := s.cipher.GetKEK(pwd)
 
 	wek, wekNonce, err := s.cipher.Wrap(kek, bkey)
 	if err != nil {
@@ -329,17 +272,13 @@ func (s *Core) NewBucket(pwd []byte) ([]byte, error) {
 }
 
 func (s *Core) OpenBucket(key, pwd, cipherData []byte) error {
-
 	cipher := new(BucketCipher)
 	err := json.Unmarshal(cipherData, cipher)
 	if err != nil {
 		return err
 	}
 
-	kek, err := s.cipher.GetKEKWithSalt(pwd, cipher.KEKSalt)
-	if err != nil {
-		return err
-	}
+	kek := s.cipher.GetKEKWithSalt(pwd, cipher.KEKSalt)
 
 	cek, err := s.cipher.UnWrap(cipher.WEK, kek, cipher.WEKNonce)
 	if err != nil {
@@ -354,6 +293,8 @@ func (s *Core) OpenBucket(key, pwd, cipherData []byte) error {
 	return nil
 }
 
+// Encrypt encrypts using the bucket password.
+// It internally calls cipher.Encrypt.
 func (s *Core) Encrypt(data []byte) (enc, nonce []byte, err error) {
 	if len(s.bucPass) == 0 {
 		return nil, nil, fmt.Errorf("s.bucPass is len 0")
@@ -361,15 +302,20 @@ func (s *Core) Encrypt(data []byte) (enc, nonce []byte, err error) {
 	return s.cipher.Encrypt(s.bucPass, data)
 }
 
+// Decrypt decrypts using the bucket password.
+// It internally calls cipher.Decrypt.
 func (s *Core) Decrypt(enc, nonce []byte) (data []byte, err error) {
+	if len(s.bucPass) == 0 {
+		return nil, fmt.Errorf("s.bucPass is len 0")
+	}
 	return s.cipher.Decrypt(s.bucPass, enc, nonce)
 }
 
-func (s *Core) GetKEK() (kek []byte, salt []byte, err error) {
+func (s *Core) GetKEK() (kek []byte, salt []byte) {
 	return s.cipher.GetKEK(s.bucPass)
 }
 
-func (s *Core) GetKEKWithSalt(salt []byte) (kek []byte, err error) {
+func (s *Core) GetKEKWithSalt(salt []byte) (kek []byte) {
 	return s.cipher.GetKEKWithSalt(s.bucPass, salt)
 }
 

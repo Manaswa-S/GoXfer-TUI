@@ -22,12 +22,13 @@ func NewAESGSMCipher() *AESGSM {
 	return &AESGSM{}
 }
 
-//	func derivePBKDF2(pwd, salt []byte, keyLen int) (key []byte) {
-//		return pbkdf2.Key(pwd, salt, 204800, keyLen, sha256.New)
-//	}
+// deriveArgon2ID returns Argon2ID key, with 6 passes over 128MB of memory
+// over 1 thread, of length keyLen.
 func deriveArgon2ID(pwd, salt []byte, keyLen uint32) (key []byte) {
 	return argon2.IDKey(pwd, salt, 6, 128*1024, 1, keyLen)
 }
+
+// deriveSalt returns len number of random bytes.
 func deriveSalt(len int) (salt []byte) {
 	salt = make([]byte, len)
 	if n, err := rand.Read(salt); err != nil || n != len {
@@ -36,34 +37,29 @@ func deriveSalt(len int) (salt []byte) {
 	return
 }
 
-// GetWrappingKey wraps the given 'pwd' using a salt.
-// Returns the wrappingKey, salt and any error respectively.
-func (s *AESGSM) GetKEK(pwd []byte) (kek, salt []byte, err error) {
+// GetKEK returns a Key Encryption Key that can then be used to wrap the CEK.
+func (s *AESGSM) GetKEK(pwd []byte) (kek, salt []byte) {
 	salt = deriveSalt(32)
 	kek = deriveArgon2ID(pwd, salt, 32)
 	return
 }
 
-// GetWrappingKeyUsingSalt wraps the given 'pwd' using the given 'salt'.
-// Returns the wrappingKey and any error respectively.
-func (s *AESGSM) GetKEKWithSalt(pwd, salt []byte) (kek []byte, err error) {
-	return deriveArgon2ID(pwd, salt, 32), nil
-}
-
-// GetFileKey returns a random 32 byte long cryptographically safe key.
-func (s *AESGSM) GetCEK() (cek []byte, err error) {
-	cek = make([]byte, 32)
-	if n, err := rand.Read(cek); err != nil || n != 32 {
-		return nil, fmt.Errorf("failed to get read for file key: %v", err)
-	}
+// GetKEKWithSalt is similar to GetKEK but uses given salt.
+func (s *AESGSM) GetKEKWithSalt(pwd, salt []byte) (kek []byte) {
+	kek = deriveArgon2ID(pwd, salt, 32)
 	return
 }
 
-// WrapFileKey wraps fileKey using the wrappingkey.
-// Returns the wrappedFileKey, the nonce and any error respectively.
-// TODO: we can use something different here, just to bring in the diversity
-func (s *AESGSM) Wrap(kek, cek []byte) (wek, nonce []byte, err error) {
+// GetCEK returns a Content Encryption Key.
+func (s *AESGSM) GetCEK() (cek []byte) {
+	cek = deriveSalt(32)
+	return
+}
 
+// Wrap encrypts CEK using KEK.
+// Returns the Wrapped Encryption Key (wek), the nonce and any error.
+func (s *AESGSM) Wrap(kek, cek []byte) (wek, nonce []byte, err error) {
+	// TODO: we can use a different algo here, just to bring in the diversity
 	block, err := aes.NewCipher(kek)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating new cipher block : %v", err)
@@ -76,14 +72,12 @@ func (s *AESGSM) Wrap(kek, cek []byte) (wek, nonce []byte, err error) {
 
 	nonce = deriveSalt(gcm.NonceSize())
 	wek = gcm.Seal(nil, nonce, cek, nil)
-
 	return
 }
 
-// UpwrapFileKey unwraps wrappedFileKey using wrappingKey and the nonce.
-// Returns the fileKey and any error.
+// UnWrap decrypts WEK using KEK and the nonce,
+// and returns the CEK.
 func (s *AESGSM) UnWrap(wek, kek, nonce []byte) (cek []byte, err error) {
-
 	block, err := aes.NewCipher(kek)
 	if err != nil {
 		return nil, fmt.Errorf("error creating new cipher block : %v", err)
@@ -106,8 +100,9 @@ func (s *AESGSM) UnWrap(wek, kek, nonce []byte) (cek []byte, err error) {
 	return
 }
 
+// Encrypt encrypts raw using CEK,
+// and returns the enc data and nonce generated.
 func (s *AESGSM) Encrypt(cek, raw []byte) (enc, nonce []byte, err error) {
-
 	block, err := aes.NewCipher(cek)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating new cipher block : %v", err)
@@ -124,8 +119,9 @@ func (s *AESGSM) Encrypt(cek, raw []byte) (enc, nonce []byte, err error) {
 	return
 }
 
+// Decrypt decrypts enc using cek and nonce,
+// and returns the raw.
 func (s *AESGSM) Decrypt(cek, enc, nonce []byte) (raw []byte, err error) {
-
 	block, err := aes.NewCipher(cek)
 	if err != nil {
 		return nil, fmt.Errorf("error creating new cipher block : %v", err)
@@ -148,10 +144,8 @@ func (s *AESGSM) Decrypt(cek, enc, nonce []byte) (raw []byte, err error) {
 	return
 }
 
-// EncryptFile encrypts the given 'filePath' using the given 'pwd' and saves it to 'savePath'.
+// EncryptFile encrypts the given 'filePath' using the given 'cek' and saves it to 'savePath'.
 // It also returns the nonce and any error.
-// Note: The 'pwd' is expected to be cryptographically random and safe, as there is no salt usage
-// within EncryptFile.
 func (s *AESGSM) EncryptFile(cek []byte, filePath, savePath string) (nonce []byte, err error) {
 	raw, err := os.ReadFile(filePath)
 	if err != nil {
@@ -171,7 +165,7 @@ func (s *AESGSM) EncryptFile(cek []byte, filePath, savePath string) (nonce []byt
 	return nonce, nil
 }
 
-// DecryptFile decrypts the given 'filePath' using the given 'pwd' and 'nonce'.
+// DecryptFile decrypts the given 'filePath' using the given 'cek' and 'nonce'.
 // It saves the plain file at 'savePath'.
 func (s *AESGSM) DecryptFile(cek, nonce []byte, filePath, savePath string) (err error) {
 	enc, err := os.ReadFile(filePath)
@@ -192,6 +186,8 @@ func (s *AESGSM) DecryptFile(cek, nonce []byte, filePath, savePath string) (err 
 	return nil
 }
 
+// GetSHA generates the SHA checksum for the file at 'path'.
+// Returns the SHA as base64 standard encoded string.
 func (s *AESGSM) GetSHA(path string) (sha string, err error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -206,6 +202,8 @@ func (s *AESGSM) GetSHA(path string) (sha string, err error) {
 	return base64.StdEncoding.EncodeToString(sum), nil
 }
 
+// GetSHABytes generates the SHA checksum for 'data'.
+// Returns the SHA as base64 standard encoded string.
 func (s *AESGSM) GetSHABytes(data []byte) (sha string, err error) {
 	hash := sha256.New()
 	if _, err := io.Copy(hash, bytes.NewReader(data)); err != nil {
@@ -216,6 +214,8 @@ func (s *AESGSM) GetSHABytes(data []byte) (sha string, err error) {
 	return base64.StdEncoding.EncodeToString(sum), nil
 }
 
+// GetHMAC generates the HMAC checksum for file at 'path' using 'key'.
+// Returns the HMAC as base64 standard encoded string.
 func (s *AESGSM) GetHMAC(path string, key []byte) (hash string, err error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -228,9 +228,10 @@ func (s *AESGSM) GetHMAC(path string, key []byte) (hash string, err error) {
 	sum := mac.Sum(nil)
 
 	return base64.StdEncoding.EncodeToString(sum), nil
-
 }
 
+// GetHMACBytes generates the HMAC checksum for 'data' using 'key'.
+// Returns the HMAC as base64 standard encoded string.
 func (s *AESGSM) GetHMACBytes(data, key []byte) (hash string, err error) {
 	mac := hmac.New(sha256.New, key)
 	if _, err = mac.Write(data); err != nil {

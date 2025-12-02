@@ -7,6 +7,7 @@ import (
 	"goxfer/tui/cipher"
 	"goxfer/tui/consts/errs"
 	"goxfer/tui/core"
+	"goxfer/tui/logger"
 	"goxfer/tui/stages/auxiliary"
 	"goxfer/tui/utils"
 	"io"
@@ -19,15 +20,15 @@ import (
 )
 
 type Service struct {
-	errChan  chan *errs.Errorf
+	logger   logger.Logger
 	core     *core.Core
 	cipher   cipher.Cipher
 	settings *auxiliary.Settings
 }
 
-func NewService(errChan chan *errs.Errorf, core *core.Core, cipher cipher.Cipher, settings *auxiliary.Settings) *Service {
+func NewService(logger logger.Logger, core *core.Core, cipher cipher.Cipher, settings *auxiliary.Settings) *Service {
 	return &Service{
-		errChan:  errChan,
+		logger:   logger,
 		core:     core,
 		cipher:   cipher,
 		settings: settings,
@@ -35,11 +36,7 @@ func NewService(errChan chan *errs.Errorf, core *core.Core, cipher cipher.Cipher
 }
 
 func (s *Service) emitErr(errf *errs.Errorf) error {
-	select {
-	case s.errChan <- errf:
-	default:
-		// TODO: have a logger maybe ??
-	}
+	s.logger.Log(logger.ErrorLevel, "%s: %s: %s: %s", errf.Type, errf.Error, errf.Message, errf.ReturnRaw)
 	return fmt.Errorf("%s", errf.Message)
 }
 
@@ -47,6 +44,7 @@ func (s *Service) emitErr(errf *errs.Errorf) error {
 
 func (s *Service) Logout() {
 	s.core.DelSession()
+
 }
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -276,7 +274,7 @@ func (s *Service) completeUpload(uploadId string, encReturns *EncReturns) error 
 	}
 
 	if err = os.Remove(encReturns.EncPath); err != nil {
-		fmt.Errorf("failed to remove enc file: %v", err)
+		return fmt.Errorf("failed to remove enc file: %v", err)
 	}
 
 	return nil
@@ -285,7 +283,7 @@ func (s *Service) completeUpload(uploadId string, encReturns *EncReturns) error 
 func (s *Service) encryptFile(pwd []byte, rawPath string) (returns *EncReturns, err error) {
 	var fkey, fileNonce, wkey, wkeySalt, wedKey, wedKeyNonce []byte
 
-	if fkey, err = s.cipher.GetCEK(); err != nil {
+	if fkey = s.cipher.GetCEK(); err != nil {
 		return nil, fmt.Errorf("failed to get CEK: %v", err)
 	}
 	encPath := filepath.Join(filepath.Dir(rawPath), fmt.Sprintf(".goXfer.%s.enc", filepath.Base(rawPath)))
@@ -295,9 +293,9 @@ func (s *Service) encryptFile(pwd []byte, rawPath string) (returns *EncReturns, 
 
 	hasFilePass := false
 	if len(pwd) <= 0 {
-		wkey, wkeySalt, err = s.core.GetKEK()
+		wkey, wkeySalt = s.core.GetKEK()
 	} else {
-		wkey, wkeySalt, err = s.cipher.GetKEK(pwd)
+		wkey, wkeySalt = s.cipher.GetKEK(pwd)
 		hasFilePass = true
 	}
 	if err != nil {
@@ -513,9 +511,9 @@ func (s *Service) ManageDownload(fileId string, pwd []byte, progress func(int64)
 
 	var wkey []byte
 	if metaWrapper.Meta.HasFilePassword {
-		wkey, err = s.cipher.GetKEKWithSalt(pwd, utils.DecodeBase64(fileCipher.WrappingKeySalt))
+		wkey = s.cipher.GetKEKWithSalt(pwd, utils.DecodeBase64(fileCipher.WrappingKeySalt))
 	} else {
-		wkey, err = s.core.GetKEKWithSalt(utils.DecodeBase64(fileCipher.WrappingKeySalt))
+		wkey = s.core.GetKEKWithSalt(utils.DecodeBase64(fileCipher.WrappingKeySalt))
 	}
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
