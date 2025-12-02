@@ -22,8 +22,8 @@ type CompleteUploadReq struct {
 	EncFileInfo      string `json:"encFileInfo"`      // base64(encrypt(FileInfo))
 	EncFileInfoNonce string `json:"encFileInfoNonce"` // base64(encrypt(FileInfo))
 
-	EncMeta   string `json:"metadata"`  // base64(encrypt(MetaWrapper))
-	MetaNonce string `json:"metaNonce"` // base64(nonce from encrypt(MetaWrapper))
+	EncMeta      string `json:"encMetadata"`  // base64(encrypt(MetaWrapper))
+	EncMetaNonce string `json:"encMetaNonce"` // base64(nonce from encrypt(MetaWrapper))
 
 	EncDataChecksum string `json:"dataChecksum"` // sha(Data), sha is already base64()
 	EncMetaChecksum string `json:"metaChecksum"` // sha(EncMeta)
@@ -52,10 +52,12 @@ type metaData struct {
 }
 
 type fileCipherData struct {
-	WrappingKeySalt string `json:"wrappingKeySalt"` // base64(salt from GetWrappingKey)
-	FileNonce       string `json:"fileNonce"`       // base64(nonce from encrypt(encPath))
-	WrappedKey      string `json:"wrappedKey"`      // base64(WrapFileKey())
-	WrappedKeyNonce string `json:"wrappedKeyNonce"` // base64(nonce from WrapFileKey())
+	FileNonce        string `json:"fileNonce"`
+	BKeySalt         string `json:"bKeySalt"`
+	PKeySalt         string `json:"pKeySalt"`
+	WrappedKey       string `json:"wrappedKey"`
+	BWrappedKeyNonce string `json:"bWrappedKey"`
+	WrappedKeyNonce  string `json:"wrappedKeyNonce"`
 }
 
 // >>>
@@ -79,8 +81,11 @@ type EncDigest struct {
 }
 
 type EncReturns struct {
-	EncPath  string
+	// Encrypted file's path.
+	EncPath string
+	// Encrypted metadata and it's nonce.
 	MetaInfo *EncMeta
+	// Encrypted file info and it's nonce.
 	FileInfo *EncFileInfo
 }
 

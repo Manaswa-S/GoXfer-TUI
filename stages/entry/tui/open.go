@@ -82,8 +82,8 @@ func (s *Open) openBucket() {
 	s.app.QueueUpdateDraw(func() {
 		s.app.SetFocus(nil)
 	})
-	s.updater.setStatus("Opening ...")
-	defer s.updater.setStatus("")
+	s.updater.setStatus("Opening ...", -1)
+	defer s.updater.setStatus("", -1)
 
 	bucKey := []byte(s.openForm.GetFormItemByLabel("Bucket Key :").(*tview.InputField).GetText())
 	pwd := []byte(s.openForm.GetFormItemByLabel("Password :").(*tview.InputField).GetText())

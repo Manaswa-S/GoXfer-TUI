@@ -10,10 +10,11 @@ const (
 )
 
 type Log struct {
-	Level   Level  `json:"level"`
-	Time    int64  `json:"time"`
-	Message string `json:"message"`
-	Args    []any  `json:"args,omitempty"`
+	SessionID string `json:"sessionId"`
+	Level     Level  `json:"level"`
+	Time      int64  `json:"time"`
+	Message   string `json:"message"`
+	Args      []any  `json:"args,omitempty"`
 }
 
 type Logger interface {

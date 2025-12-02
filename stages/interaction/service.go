@@ -36,46 +36,65 @@ func NewService(logger logger.Logger, core *core.Core, cipher cipher.Cipher, set
 }
 
 func (s *Service) emitErr(errf *errs.Errorf) error {
-	s.logger.Log(logger.ErrorLevel, "%s: %s: %s: %s", errf.Type, errf.Error, errf.Message, errf.ReturnRaw)
+	s.logger.Log(logger.ErrorLevel, "%v: %v: %v: %v", errf.Type, errf.Error, errf.Message, errf.ReturnRaw)
 	return fmt.Errorf("%s", errf.Message)
 }
 
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
+// >>>
 func (s *Service) Logout() {
 	s.core.DelSession()
 
 }
 
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
+// >>>
 func (s *Service) GetFilesList() ([]FileInfoExtended, error) {
+	errMsg := "Failed to get files list. Try Again."
 	resp, respBody, err := s.core.Hit(core.Routes.FileList, nil, nil, nil)
 	if err != nil {
-		panic(err)
+		return nil, s.emitErr(&errs.Errorf{
+			Type:    errs.ErrDependencyFailed,
+			Error:   fmt.Errorf("failed to hit files list: %v", err),
+			Message: errMsg,
+		})
 	}
-
 	if resp.StatusCode != http.StatusOK {
-		panic("not ok")
+		return nil, s.emitErr(&errs.Errorf{
+			Type:    errs.ErrBadRequest,
+			Error:   fmt.Errorf("failed to hit files list: status not ok"),
+			Message: errMsg,
+		})
 	}
 
 	list := new(GetFilesListResp)
 	err = json.Unmarshal(respBody, list)
 	if err != nil {
-		panic(err)
+		return nil, s.emitErr(&errs.Errorf{
+			Type:    errs.ErrBadRequest,
+			Error:   fmt.Errorf("failed to unmarshal files list: %v", err),
+			Message: errMsg,
+		})
 	}
 
+	errMsg = "Failed to decrypt files list."
 	files := make([]FileInfoExtended, 0)
 	for _, file := range list.Files {
 		data, err := s.core.Decrypt(utils.DecodeBase64(file.EncFileInfo), utils.DecodeBase64(file.FileInfoNonce))
 		if err != nil {
-			panic(err)
+			return nil, s.emitErr(&errs.Errorf{
+				Type:    errs.ErrBadRequest,
+				Error:   fmt.Errorf("failed to decrypt file info: %v", err),
+				Message: errMsg,
+			})
 		}
 
 		info := new(FileInfo)
 		err = json.Unmarshal(data, info)
 		if err != nil {
-			panic(err)
+			return nil, s.emitErr(&errs.Errorf{
+				Type:    errs.ErrBadRequest,
+				Error:   fmt.Errorf("failed to unmarshal file info: %v", err),
+				Message: errMsg,
+			})
 		}
 
 		files = append(files, FileInfoExtended{
@@ -91,27 +110,34 @@ func (s *Service) GetFilesList() ([]FileInfoExtended, error) {
 	return files, nil
 }
 
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-func (s *Service) ManageUpload(pwd []byte, path string, progress func(string, int64)) (err error) {
+// >>>
+func (s *Service) ManageUpload(pwd []byte, rawPath string, progress func(string, int64)) (err error) {
+	encPath := filepath.Join(filepath.Dir(rawPath), fmt.Sprintf(".goXfer.%s.enc", filepath.Base(rawPath)))
+	defer func() {
+		if err = os.Remove(encPath); err != nil {
+			// TODO: should not panic
+			panic(fmt.Errorf("failed to remove enc file: %v", err))
+		}
+	}()
 	// INIT
-	plan, encReturns, err := s.initUpload(pwd, path, progress)
+	errMsg := "Failed to upload file. Try Again!"
+	plan, encReturns, err := s.initUpload(pwd, rawPath, encPath, progress)
 	if err != nil {
 		return s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
 			Error:   fmt.Errorf("failed to init upload: %v", err),
-			Message: "Failed to upload. Try Again!",
+			Message: errMsg,
 		})
 	}
+	// UPLOAD
 	encFile, err := os.Open(encReturns.EncPath)
 	if err != nil {
 		return s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
 			Error:   fmt.Errorf("failed to open enc file: %v", err),
-			Message: "Failed to upload. Try Again!",
+			Message: errMsg,
 		})
 	}
 	defer encFile.Close()
+
 	tasks := make(chan int64, plan.TotalChunks)
 	errGrp, _ := errgroup.WithContext(context.Background())
 	successChan := make(chan int64, 1)
@@ -132,7 +158,7 @@ func (s *Service) ManageUpload(pwd []byte, path string, progress func(string, in
 				return s.emitErr(&errs.Errorf{
 					Type:    errs.ErrDependencyFailed,
 					Error:   fmt.Errorf("failed to post file part: %v", err),
-					Message: "Failed to upload. Try Again!",
+					Message: errMsg,
 				})
 			}
 			return nil
@@ -148,26 +174,26 @@ func (s *Service) ManageUpload(pwd []byte, path string, progress func(string, in
 		return s.emitErr(&errs.Errorf{
 			Type:    errs.ErrDependencyFailed,
 			Error:   fmt.Errorf("failed to post file part: %v", err),
-			Message: "Failed to upload. Try Again!",
+			Message: errMsg,
 		})
 	}
 	close(successChan)
 
 	// NOTIFY COMPLETION
+	errMsg = "Failed to notify upload completion."
 	progress("completing upload", 0)
 	if err = s.completeUpload(plan.UploadID, encReturns); err != nil {
 		return s.emitErr(&errs.Errorf{
 			Type:    errs.ErrDependencyFailed,
 			Error:   fmt.Errorf("failed to complete file upload: %v", err),
-			Message: "Failed to upload. Try Again!",
+			Message: errMsg,
 		})
 	}
 
 	return nil
 }
 
-// TODO: encrypted file should be deleted irrespective of the outcome
-func (s *Service) initUpload(pwd []byte, rawPath string, stage func(string, int64)) (plan *InitUploadResp, encReturns *EncReturns, err error) {
+func (s *Service) initUpload(pwd []byte, rawPath, encPath string, stage func(string, int64)) (plan *InitUploadResp, encReturns *EncReturns, err error) {
 	// TEST UPLOAD
 	stage("testing upload", 0)
 	upload, err := s.core.TestUpload()
@@ -177,7 +203,7 @@ func (s *Service) initUpload(pwd []byte, rawPath string, stage func(string, int6
 
 	// ENCRYPT FILE
 	stage("encrypting file", 0)
-	encReturns, err = s.encryptFile(pwd, rawPath)
+	encReturns, err = s.encryptFile(pwd, rawPath, encPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt file: %v", err)
 	}
@@ -241,7 +267,6 @@ func (s *Service) completeUpload(uploadId string, encReturns *EncReturns) error 
 	if err != nil {
 		return fmt.Errorf("failed to get SHA: %v", err)
 	}
-
 	encMetaChksm, err := s.cipher.GetSHABytes(utils.DecodeBase64(encReturns.MetaInfo.EncMeta))
 	if err != nil {
 		return fmt.Errorf("failed to get SHA: %v", err)
@@ -253,8 +278,8 @@ func (s *Service) completeUpload(uploadId string, encReturns *EncReturns) error 
 		EncFileInfo:      encReturns.FileInfo.EncFileInfo,
 		EncFileInfoNonce: encReturns.FileInfo.FileInfoNonce,
 
-		EncMeta:   encReturns.MetaInfo.EncMeta,
-		MetaNonce: encReturns.MetaInfo.MetaNonce,
+		EncMeta:      encReturns.MetaInfo.EncMeta,
+		EncMetaNonce: encReturns.MetaInfo.MetaNonce,
 
 		EncDataChecksum: encDataChksm,
 		EncMetaChecksum: encMetaChksm,
@@ -273,48 +298,59 @@ func (s *Service) completeUpload(uploadId string, encReturns *EncReturns) error 
 		return fmt.Errorf("failed to Hit %v: status not 200 ok", core.Routes.UploadComplete)
 	}
 
-	if err = os.Remove(encReturns.EncPath); err != nil {
-		return fmt.Errorf("failed to remove enc file: %v", err)
-	}
-
 	return nil
 }
 
-func (s *Service) encryptFile(pwd []byte, rawPath string) (returns *EncReturns, err error) {
-	var fkey, fileNonce, wkey, wkeySalt, wedKey, wedKeyNonce []byte
-
-	if fkey = s.cipher.GetCEK(); err != nil {
-		return nil, fmt.Errorf("failed to get CEK: %v", err)
-	}
-	encPath := filepath.Join(filepath.Dir(rawPath), fmt.Sprintf(".goXfer.%s.enc", filepath.Base(rawPath)))
-	if fileNonce, err = s.cipher.EncryptFile(fkey, rawPath, encPath); err != nil {
+func (s *Service) encryptFile(pwd []byte, rawPath, encPath string) (returns *EncReturns, err error) {
+	// Generate fkey and encrypt file.
+	fkey := s.cipher.GetCEK()
+	fileNonce, err := s.cipher.EncryptFile(fkey, rawPath, encPath)
+	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt file: %v", err)
 	}
 
-	hasFilePass := false
-	if len(pwd) <= 0 {
-		wkey, wkeySalt = s.core.GetKEK()
-	} else {
-		wkey, wkeySalt = s.cipher.GetKEK(pwd)
-		hasFilePass = true
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get KEK: %v", err)
-	}
+	// Define
+	var wedKey, bWrappedKeyNonce, wedKeyNonce []byte
+	var bKey, bKeySalt []byte
+	var pKey, pKeySalt []byte
 
-	if wedKey, wedKeyNonce, err = s.cipher.Wrap(wkey, fkey); err != nil {
+	// Irrespective of file password,
+	// get a WEK using bucPass.
+	bKey, bKeySalt = s.core.GetKEK()
+	// Wrap fkey using bkey.
+	wedKey, bWrappedKeyNonce, err = s.cipher.Wrap(bKey, fkey)
+	if err != nil {
 		return nil, fmt.Errorf("failed to wrap: %v", err)
 	}
 
-	fileCipher := fileCipherData{
-		WrappingKeySalt: utils.EncodeBase64(wkeySalt),
-		FileNonce:       utils.EncodeBase64(fileNonce),
-		WrappedKey:      utils.EncodeBase64(wedKey),
-		WrappedKeyNonce: utils.EncodeBase64(wedKeyNonce),
+	hasFilePass := false
+	// If file password is given,
+	if len(pwd) > 0 {
+		// Get KEK using pwd
+		pKey, pKeySalt = s.cipher.GetKEK(pwd)
+		// And wrap wedKeyUBuc again.
+		wedKey, wedKeyNonce, err = s.cipher.Wrap(pKey, wedKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to wrap: %v", err)
+		}
+		hasFilePass = true
 	}
-	// >>>
 
-	rawDataChksm, err := s.cipher.GetHMAC(rawPath, wkey)
+	fileCipher := fileCipherData{
+		FileNonce:        utils.EncodeBase64(fileNonce),
+		BKeySalt:         utils.EncodeBase64(bKeySalt),
+		PKeySalt:         utils.EncodeBase64(pKeySalt),
+		WrappedKey:       utils.EncodeBase64(wedKey),
+		BWrappedKeyNonce: utils.EncodeBase64(bWrappedKeyNonce),
+		WrappedKeyNonce:  utils.EncodeBase64(wedKeyNonce),
+	}
+
+	// >>>
+	// All other crypts are to be signed using bkey,
+	// cause that's the main key. File password is optional.
+
+	// Get HMAC of raw file using bKey.
+	rawDataChksm, err := s.cipher.GetHMAC(rawPath, bKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get HMAC: %v", err)
 	}
@@ -335,7 +371,7 @@ func (s *Service) encryptFile(pwd []byte, rawPath string) (returns *EncReturns, 
 	if err != nil {
 		return nil, err
 	}
-	rawMetaChksm, err := s.cipher.GetHMACBytes(metaBytes, wkey)
+	rawMetaChksm, err := s.cipher.GetHMACBytes(metaBytes, bKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get HMAC: %v", err)
 	}
@@ -368,10 +404,13 @@ func (s *Service) encryptFile(pwd []byte, rawPath string) (returns *EncReturns, 
 		return nil, fmt.Errorf("failed to encrypt: %v", err)
 	}
 
+	// TODO:
 	clear(fkey)
 	clear(fileNonce)
-	clear(wkey)
-	clear(wkeySalt)
+	clear(bKey)
+	clear(pKey)
+	clear(bKeySalt)
+	clear(pKeySalt)
 	clear(wedKey)
 	clear(wedKeyNonce)
 
@@ -388,48 +427,56 @@ func (s *Service) encryptFile(pwd []byte, rawPath string) (returns *EncReturns, 
 	}, nil
 }
 
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-func (s *Service) ManageDownload(fileId string, pwd []byte, progress func(int64)) (string, error) {
+// >>>
+func (s *Service) ManageDownload(fileId string, pwd []byte, progress func(int64)) (rawPath string, err error) {
+	errMsg := "Failed to initiate download. Try again!"
 	// INIT
 	respInit, _, err := s.core.Hit(core.Routes.DownloadInit, core.QueryParams{
 		core.QFileID: fileId,
 	}, nil, nil)
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
 			Error:   fmt.Errorf("failed to initiate download: %v", err),
-			Message: "Failed to initiate download. Try again!",
+			Message: errMsg,
 		})
 	}
 	if respInit.StatusCode != http.StatusOK {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrBadRequest,
 			Error:   fmt.Errorf("failed to initiate download: status not ok: %v", err),
-			Message: "Failed to initiate download. Try again!",
+			Message: errMsg,
 		})
 	}
 	downId := respInit.Header.Get("X-Download-ID")
 	if downId == "" {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrInternalServer,
 			Error:   fmt.Errorf("failed to initiate download: download id not found: %v", err),
-			Message: "Failed to initiate download. Try again!",
+			Message: errMsg,
 		})
 	}
 
-	// DATA
-	dataPath, err := s.downloadData(fileId, downId, progress)
+	errMsg = "Failed to download file. Try again!"
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to get wd: %v", err),
+			Message: errMsg,
+		})
+	}
+	encFile := fmt.Sprintf(".goXfer.%s.enc", fileId)
+	encPath := filepath.Join(wd, encFile)
 	defer func() {
-		if err = os.Remove(dataPath); err != nil {
+		if err = os.Remove(encPath); err != nil {
 			panic(err)
 		}
 	}()
+
+	// DATA
+	err = s.downloadData(fileId, downId, encPath, progress)
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrInternalServer,
 			Error:   fmt.Errorf("failed to download data: %v", err),
-			Message: "Failed to download file. Try again!",
+			Message: errMsg,
 		})
 	}
 
@@ -438,9 +485,8 @@ func (s *Service) ManageDownload(fileId string, pwd []byte, progress func(int64)
 	defer func() { encMeta = nil }()
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrInternalServer,
 			Error:   fmt.Errorf("failed to download meta: %v", err),
-			Message: "Failed to download file. Try again!",
+			Message: errMsg,
 		})
 	}
 
@@ -449,181 +495,95 @@ func (s *Service) ManageDownload(fileId string, pwd []byte, progress func(int64)
 	defer func() { digest = nil }()
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrInternalServer,
 			Error:   fmt.Errorf("failed to download digest: %v", err),
-			Message: "Failed to download file. Try again!",
+			Message: errMsg,
 		})
 	}
-
-	encDataChksm, err := s.cipher.GetSHA(dataPath)
+	// Everything has been downloaded.
+	err = s.checkDownloads(digest, encPath, encMeta)
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrInternalServer,
-			Error:   fmt.Errorf("failed to get SHA: %v", err),
-			Message: "Failed to verify file. Try again!",
-		})
-	}
-	if encDataChksm != digest.EncDataChecksum {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrInternalServer,
-			Error:   fmt.Errorf("enc data checksums did not match : %v", err),
-			Message: "Failed to verify file. Try again!",
+			Error:   err,
+			Message: errMsg,
 		})
 	}
 
-	encMetaChksm, err := s.cipher.GetSHABytes(utils.DecodeBase64(encMeta.EncMeta))
+	errMsg = "Failed to decrypt file. Try again!"
+	// Get decrypted and checked metadata
+	meta, err := s.getMetadata(encMeta)
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrInternalServer,
-			Error:   fmt.Errorf("failed to get SHA: %v", err),
-			Message: "Failed to verify file. Try again!",
+			Error:   err,
+			Message: errMsg,
 		})
 	}
-	if encMetaChksm != digest.EncMetaChecksum {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrInternalServer,
-			Error:   fmt.Errorf("enc meta checksums did not match : %v", err),
-			Message: "Failed to verify file. Try again!",
-		})
+	fileCipher := meta.FileCipher
+
+	wedKey := utils.DecodeBase64(fileCipher.WrappedKey)
+	if meta.HasFilePassword && len(pwd) > 0 {
+		pKey := s.cipher.GetKEKWithSalt(pwd, utils.DecodeBase64(fileCipher.PKeySalt))
+
+		wedKey, err = s.cipher.UnWrap(wedKey, pKey, utils.DecodeBase64(fileCipher.WrappedKeyNonce))
+		if err != nil {
+			return "", s.emitErr(&errs.Errorf{
+				Error:   fmt.Errorf("failed to unwrap: %v", err),
+				Message: errMsg,
+			})
+		}
 	}
 
-	metaWrapperBytes, err := s.core.Decrypt(utils.DecodeBase64(encMeta.EncMeta),
-		utils.DecodeBase64(encMeta.MetaNonce))
+	bKey := s.core.GetKEKWithSalt(utils.DecodeBase64(fileCipher.BKeySalt))
+
+	fKey, err := s.cipher.UnWrap(wedKey, bKey, utils.DecodeBase64(fileCipher.BWrappedKeyNonce))
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
-			Error:   fmt.Errorf("failed to decrypt meta: %v", err),
-			Message: "Failed to decrypt file. Try again!",
-		})
-	}
-
-	metaWrapper := new(metaWrapper)
-	if err = json.Unmarshal(metaWrapperBytes, metaWrapper); err != nil {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
-			Error:   fmt.Errorf("failed to unmarshal meta: %v", err),
-			Message: "Failed to decrypt file. Try again!",
-		})
-	}
-
-	fileCipher := metaWrapper.Meta.FileCipher
-	meta := metaWrapper.Meta
-
-	var wkey []byte
-	if metaWrapper.Meta.HasFilePassword {
-		wkey = s.cipher.GetKEKWithSalt(pwd, utils.DecodeBase64(fileCipher.WrappingKeySalt))
-	} else {
-		wkey = s.core.GetKEKWithSalt(utils.DecodeBase64(fileCipher.WrappingKeySalt))
-	}
-	if err != nil {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
-			Error:   fmt.Errorf("failed to get KEK: %v", err),
-			Message: "Failed to decrypt file. Try again!",
-		})
-	}
-
-	metaBytes, err := json.Marshal(meta)
-	if err != nil {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
-			Error:   fmt.Errorf("failed to marshal meta: %v", err),
-			Message: "Failed to decrypt file. Try again!",
-		})
-	}
-	rawMetaChksm, err := s.cipher.GetHMACBytes(metaBytes, wkey)
-	if err != nil {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
-			Error:   fmt.Errorf("failed to marshal meta: %v", err),
-			Message: "Failed to decrypt file. Try again!",
-		})
-	}
-	if rawMetaChksm != metaWrapper.RawMetaChecksum {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
-			Error:   fmt.Errorf("failed to match meta checksums: %v", err),
-			Message: "Failed to decrypt file. Try again!",
-		})
-	}
-
-	fkey, err := s.cipher.UnWrap(utils.DecodeBase64(fileCipher.WrappedKey), wkey, utils.DecodeBase64(fileCipher.WrappedKeyNonce))
-	if err != nil {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
 			Error:   fmt.Errorf("failed to unwrap: %v", err),
-			Message: "Failed to decrypt file. Try again!",
+			Message: errMsg,
 		})
 	}
 
-	wd, err := os.Getwd()
+	rawFile := meta.FileName
+	rawPath = filepath.Join(wd, rawFile)
+	err = s.cipher.DecryptFile(fKey, utils.DecodeBase64(fileCipher.FileNonce), encPath, rawPath)
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
-			Error:   fmt.Errorf("failed to get wd: %v", err),
-			Message: "Failed to decrypt file. Try again!",
-		})
-	}
-
-	fileName := metaWrapper.Meta.FileName
-	savePath := filepath.Join(wd, fileName)
-	err = s.cipher.DecryptFile(fkey, utils.DecodeBase64(fileCipher.FileNonce), dataPath, savePath)
-	if err != nil {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
 			Error:   fmt.Errorf("failed to decrypt: %v", err),
-			Message: "Failed to decrypt file. Try again!",
+			Message: errMsg,
 		})
 	}
 
-	rawDataChksm, err := s.cipher.GetHMAC(savePath, wkey)
+	// Check raw file
+	rawDataChksm, err := s.cipher.GetHMAC(rawPath, bKey)
 	if err != nil {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
 			Error:   fmt.Errorf("failed to get HMAC: %v", err),
-			Message: "Failed to decrypt file. Try again!",
+			Message: errMsg,
 		})
 	}
 	if rawDataChksm != meta.RawDataChecksum {
 		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
 			Error:   fmt.Errorf("failed to match checksums: %v", err),
-			Message: "Failed to decrypt file. Try again!",
+			Message: errMsg,
 		})
 	}
 
-	stat, err := os.Stat(savePath)
-	if err != nil {
-		return "", s.emitErr(&errs.Errorf{
-			Type:    errs.ErrDependencyFailed,
-			Error:   fmt.Errorf("failed to get stats: %v", err),
-			Message: "Failed to decrypt file. Try again!",
-		})
-	}
-
-	return stat.Name(), nil
+	return rawFile, nil
 }
 
-func (s *Service) downloadData(fileId, downId string, progress func(int64)) (outPath string, err error) {
+func (s *Service) downloadData(fileId, downId, encPath string, progress func(int64)) (err error) {
 	resp, err := s.core.Download(core.Routes.DownloadData,
 		core.QueryParams{core.QFileID: fileId}, downId)
 	if err != nil {
-		return "", err
+		return err
 	}
 	fullSize, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	wd, err := os.Getwd()
+	out, err := os.Create(encPath)
 	if err != nil {
-		return "", err
-	}
-	outFile := fmt.Sprintf(".goXfer.%s.enc", fileId)
-	outPath = filepath.Join(wd, outFile)
-	out, err := os.Create(outPath)
-	if err != nil {
-		return "", err
+		return err
 	}
 
 	buf := make([]byte, 64*1024)
@@ -633,7 +593,7 @@ func (s *Service) downloadData(fileId, downId string, progress func(int64)) (out
 		if n > 0 {
 			nw, err := out.Write(buf[:n])
 			if err != nil {
-				return "", err
+				return err
 			}
 			downloaded += int64(nw)
 			progress((downloaded * 100) / fullSize)
@@ -642,10 +602,10 @@ func (s *Service) downloadData(fileId, downId string, progress func(int64)) (out
 			break
 		}
 		if err != nil {
-			return "", err
+			return err
 		}
 	}
-	return outPath, nil
+	return nil
 }
 
 func (s *Service) downloadMeta(fileId, downId string) (*EncMeta, error) {
@@ -688,18 +648,102 @@ func (s *Service) downloadDigest(fileId, downId string) (*EncDigest, error) {
 	}, nil
 }
 
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+func (s *Service) checkDownloads(digest *EncDigest, encPath string, encMeta *EncMeta) error {
+	// Check encrypted data
+	encDataChksm, err := s.cipher.GetSHA(encPath)
+	if err != nil {
+		return s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to get SHA: %v", err),
+			Message: "Failed to verify file. Try again!",
+		})
+	}
+	if encDataChksm != digest.EncDataChecksum {
+		return s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("enc data checksums did not match : %v", err),
+			Message: "Failed to verify file. Try again!",
+		})
+	}
 
+	// Check encrypted metadata
+	encMetaChksm, err := s.cipher.GetSHABytes(utils.DecodeBase64(encMeta.EncMeta))
+	if err != nil {
+		return s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to get SHA: %v", err),
+			Message: "Failed to verify file. Try again!",
+		})
+	}
+	if encMetaChksm != digest.EncMetaChecksum {
+		return s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("enc meta checksums did not match : %v", err),
+			Message: "Failed to verify file. Try again!",
+		})
+	}
+
+	return nil
+}
+
+func (s *Service) getMetadata(encMeta *EncMeta) (*metaData, error) {
+	metaWrapperBytes, err := s.core.Decrypt(utils.DecodeBase64(encMeta.EncMeta),
+		utils.DecodeBase64(encMeta.MetaNonce))
+	if err != nil {
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to decrypt meta: %v", err),
+			Message: "Failed to decrypt file. Try again!",
+		})
+	}
+	metaWrapper := new(metaWrapper)
+	if err = json.Unmarshal(metaWrapperBytes, metaWrapper); err != nil {
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to unmarshal meta: %v", err),
+			Message: "Failed to decrypt file. Try again!",
+		})
+	}
+	meta := metaWrapper.Meta
+
+	bKey := s.core.GetKEKWithSalt(utils.DecodeBase64(meta.FileCipher.BKeySalt))
+
+	metaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to marshal meta: %v", err),
+			Message: "Failed to decrypt file. Try again!",
+		})
+	}
+	rawMetaChksm, err := s.cipher.GetHMACBytes(metaBytes, bKey)
+	if err != nil {
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to marshal meta: %v", err),
+			Message: "Failed to decrypt file. Try again!",
+		})
+	}
+	if rawMetaChksm != metaWrapper.RawMetaChecksum {
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to match meta checksums: %v", err),
+			Message: "Failed to decrypt file. Try again!",
+		})
+	}
+	clear(bKey)
+
+	return &meta, nil
+}
+
+// >>>
 func (s *Service) DeleteFile(fileId string) (err error) {
-
+	errMsg := "Failed to delete file. Try Again!"
 	resp, _, err := s.core.Hit(core.Routes.DeleteFile,
 		core.QueryParams{core.QFileID: fileId}, nil, nil)
 	if err != nil {
-		return err
+		return s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to delete file: %v", err),
+			Message: errMsg,
+		})
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		panic("status not ok")
+		return s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to delete file: status not ok"),
+			Message: errMsg,
+		})
 	}
 
 	return nil

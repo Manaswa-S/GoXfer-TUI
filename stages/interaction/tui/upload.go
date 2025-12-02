@@ -172,9 +172,16 @@ func (s *Upload) addItems() {
 		}
 
 		if event.Key() == tcell.KeyESC {
+			// TODO:
 			c := s.fileTree.GetRoot().GetChildren()
 			for _, child := range c {
+				// ref, ok := child.GetReference().(string)
+				// if !ok {
+				// 	continue
+				// }
+				// if ref == rootDir {
 				child.CollapseAll()
+				// }
 			}
 		}
 
@@ -238,7 +245,6 @@ func (s *Upload) addToTree(target *tview.TreeNode, path string) {
 }
 
 // SEARCH FUNCTIONALITY
-
 func (s *Upload) setSearchTableHeaders() {
 	headers := []string{"Sr.No.", "Name", "Size", "Created On"}
 	for col, h := range headers {
@@ -361,28 +367,24 @@ func (s *Upload) uploadFile(path string) {
 	s.flex.RemoveItem(s.searchTable)
 	s.flex.RemoveItem(s.fileTree)
 
+	clean := func() {
+		s.confirmUpload.Clear(true)
+		s.flex.RemoveItem(s.confirmUpload)
+		s.flex.AddItem(s.fileTree, 0, 1, true)
+		s.app.SetFocus(s.fileTree)
+	}
+
 	s.confirmUpload.
 		AddTextView("File to Upload: ", path, 0, 1, true, false).
 		AddInputField("File Password:", "", 30, nil, nil).
-		AddButton("Cancel", func() {
-			s.confirmUpload.Clear(true)
-			s.flex.RemoveItem(s.confirmUpload)
-			s.flex.AddItem(s.fileTree, 0, 1, true)
-			s.app.SetFocus(s.fileTree)
-		}).SetButtonsAlign(tview.AlignCenter).
+		AddButton("Cancel", clean).SetButtonsAlign(tview.AlignCenter).
 		AddButton("Confirm", func() {
-			item := s.confirmUpload.GetFormItemByLabel("File Password:")
-			pwd := []byte(item.(*tview.InputField).GetText())
+			pwd := []byte(s.confirmUpload.GetFormItemByLabel("File Password:").(*tview.InputField).GetText())
 			go s.processUpload(pwd, path)
 			s.confirmUpload.Clear(true)
 			s.updater.switchPage(pages.Interaction.FILES)
 		}).SetFocus(1).
-		SetCancelFunc(func() {
-			s.confirmUpload.Clear(true)
-			s.flex.RemoveItem(s.confirmUpload)
-			s.flex.AddItem(s.fileTree, 0, 1, true)
-			s.app.SetFocus(s.fileTree)
-		})
+		SetCancelFunc(clean)
 
 	s.flex.AddItem(s.confirmUpload, 0, 1, true)
 	s.app.SetFocus(s.confirmUpload)
@@ -391,20 +393,13 @@ func (s *Upload) uploadFile(path string) {
 func (s *Upload) processUpload(pwd []byte, path string) {
 	name := filepath.Base(path)
 	progress := func(stage string, done int64) {
-		s.app.QueueUpdateDraw(func() {
-			s.updater.setStatus(fmt.Sprintf("Uploading %s... : %s %d%%", name[:7], stage, done))
-		})
+		s.updater.setStatus(fmt.Sprintf("Uploading %s... : %s %d%%", name[:7], stage, done), -1)
 	}
-	s.service.ManageUpload(pwd, path, progress)
+	err := s.service.ManageUpload(pwd, path, progress)
 	clear(pwd)
-
-	s.app.QueueUpdateDraw(func() {
-		s.updater.setStatus(fmt.Sprintf("Uploaded %s... successfully", name[:7]))
-	})
-
-	time.AfterFunc(5*time.Second, func() {
-		s.app.QueueUpdateDraw(func() {
-			s.updater.setStatus("")
-		})
-	})
+	if err != nil {
+		s.updater.setError(err.Error(), 0)
+		return
+	}
+	s.updater.setStatus(fmt.Sprintf("Uploaded %s... successfully", name[:7]), 0)
 }

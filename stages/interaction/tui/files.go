@@ -14,11 +14,11 @@ import (
 )
 
 type Files struct {
+	app     *tview.Application
 	updater *Updater
 	service *interaction.Service
+	flex    *tview.Flex
 
-	app          *tview.Application
-	flex         *tview.Flex
 	filesTable   *tview.Table
 	confirmModal *tview.Modal
 	downloadForm *tview.Form
@@ -116,11 +116,11 @@ func (s *Files) setFilesList() {
 		}
 	})
 
-	var err error
-	clear(s.files)
-	if s.files, err = s.service.GetFilesList(); err != nil {
-		s.updater.setError(err.Error())
-		return
+	if files, err := s.service.GetFilesList(); err != nil {
+		s.updater.setError(err.Error(), 0)
+	} else {
+		clear(s.files)
+		s.files = files
 	}
 
 	slices.SortFunc(s.files, func(a, b interaction.FileInfoExtended) int {
@@ -137,7 +137,6 @@ func (s *Files) setFilesList() {
 			} else {
 				s.filesTable.SetCell(i+2, 3, tview.NewTableCell(fmt.Sprintf("  %s ago ", units.HumanDuration(time.Since(file.CreatedAt)))).SetAlign(tview.AlignCenter).SetExpansion(0))
 			}
-
 		}
 
 		s.filesTable.SetFixed(2, 0)
@@ -149,18 +148,24 @@ func (s *Files) setFilesList() {
 				Background(tcell.ColorWhite).
 				Foreground(tcell.ColorBlack)).
 			Select(2, 0)
+
+		noOfFiles := len(s.files)
+		s.filesTable.SetCell(noOfFiles+3, 0, tview.NewTableCell("").SetExpansion(0).SetSelectable(false).SetAttributes(tcell.AttrBold))
+		s.filesTable.SetCell(noOfFiles+3, 1, tview.NewTableCell(fmt.Sprintf("End: Total Files: %d", noOfFiles)).SetExpansion(1).SetAlign(tview.AlignLeft).SetSelectable(false).SetAttributes(tcell.AttrBold))
+		s.filesTable.SetCell(noOfFiles+3, 2, tview.NewTableCell("").SetAlign(tview.AlignCenter).SetExpansion(0).SetSelectable(false).SetAttributes(tcell.AttrBold))
+		s.filesTable.SetCell(noOfFiles+3, 3, tview.NewTableCell("").SetAlign(tview.AlignCenter).SetExpansion(0).SetSelectable(false).SetAttributes(tcell.AttrBold))
 	})
 }
 
 func (s *Files) fileModal(text string, yes func()) {
 	s.confirmModal = tview.NewModal().
 		SetText(text).
-		AddButtons([]string{"Yes", "Cancel"}).
+		AddButtons([]string{"Cancel", "Yes"}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			s.flex.RemoveItem(s.confirmModal)
 			s.flex.AddItem(s.filesTable, 0, 1, true)
 			s.app.SetFocus(s.filesTable)
-			if buttonIndex == 0 {
+			if buttonIndex == 1 {
 				yes()
 			}
 		})
@@ -180,20 +185,19 @@ func (s *Files) downloadFile(idx int) {
 }
 
 func (s *Files) showDownloadForm(idx int) {
+	clean := func() {
+		s.flex.RemoveItem(s.downloadForm)
+		s.flex.AddItem(s.filesTable, 0, 1, true)
+		s.app.SetFocus(s.filesTable)
+	}
 	s.downloadForm = tview.NewForm().
 		AddTextView("File to Download: ", s.files[idx].FileName, 0, 1, true, false).
 		AddInputField("File Password:", "", 30, nil, nil).
-		AddButton("Cancel", func() {
-			s.flex.RemoveItem(s.downloadForm)
-			s.flex.AddItem(s.filesTable, 0, 1, true)
-			s.app.SetFocus(s.filesTable)
-		}).
+		AddButton("Cancel", clean).
 		AddButton("Confirm", func() {
 			pwd := []byte(s.downloadForm.GetFormItemByLabel("File Password:").(*tview.InputField).GetText())
 			go s.processDownload(s.files[idx].FileUUID, pwd)
-			s.flex.RemoveItem(s.downloadForm)
-			s.flex.AddItem(s.filesTable, 0, 1, true)
-			s.app.SetFocus(s.filesTable)
+			clean()
 		}).
 		SetFocus(1).
 		SetButtonsAlign(tview.AlignCenter)
@@ -205,71 +209,29 @@ func (s *Files) showDownloadForm(idx int) {
 
 func (s *Files) processDownload(fileId string, pass []byte) {
 	progress := func(done int64) {
-		s.app.QueueUpdateDraw(func() {
-			s.updater.setStatus(fmt.Sprintf("Downloading: %d%%", done))
-		})
+		s.updater.setStatus(fmt.Sprintf("Downloading: %d%%", done), -1)
 	}
 	fileName, err := s.service.ManageDownload(fileId, pass, progress)
 	clear(pass)
 	if err != nil {
-		s.app.QueueUpdateDraw(func() {
-			s.updater.setError(err.Error())
-		})
-		s.app.QueueUpdateDraw(func() {
-			s.updater.setStatus("")
-		})
-		go func() {
-			time.Sleep(10 * time.Second)
-			s.app.QueueUpdateDraw(func() {
-				s.updater.setError("")
-			})
-		}()
+		s.updater.setError(err.Error(), 0)
+		s.updater.setStatus("", 0)
 		return
 	} else {
-		s.app.QueueUpdateDraw(func() {
-			s.updater.setStatus(fmt.Sprintf("Downloaded: %s", fileName))
-		})
-		go func() {
-			time.Sleep(5 * time.Second)
-			s.app.QueueUpdateDraw(func() {
-				s.updater.setStatus("")
-			})
-		}()
+		s.updater.setStatus(fmt.Sprintf("Downloaded: %s", fileName), 0)
 	}
-
 }
 
 // DELETE
 func (s *Files) deleteFile(idx int) {
 	name := s.files[idx].FileName
-	s.app.QueueUpdateDraw(func() {
-		s.updater.setStatus(fmt.Sprintf("Deleting: %s ...", name[:7]))
-	})
+	s.updater.setStatus(fmt.Sprintf("Deleting: %s ...", name[:7]), -1)
 	err := s.service.DeleteFile(s.files[idx].FileUUID)
 	if err != nil {
-		s.app.QueueUpdateDraw(func() {
-			s.updater.setError(fmt.Sprintf("Failed to delete: %s ...", name[:7]))
-		})
-		s.app.QueueUpdateDraw(func() {
-			s.updater.setStatus("")
-		})
-		go func() {
-			time.Sleep(5 * time.Second)
-			s.app.QueueUpdateDraw(func() {
-				s.updater.setError("")
-			})
-		}()
+		s.updater.setError(fmt.Sprintf("Failed to delete: %s ...", name[:7]), 0)
+		s.updater.setStatus("", 0)
 		return
 	}
-	s.app.QueueUpdateDraw(func() {
-		s.updater.setStatus(fmt.Sprintf("Deleted: %s ...", name[:7]))
-	})
-	go func() {
-		time.Sleep(5 * time.Second)
-		s.app.QueueUpdateDraw(func() {
-			s.updater.setStatus("")
-		})
-	}()
-
+	s.updater.setStatus(fmt.Sprintf("Deleted: %s ...", name[:7]), 0)
 	go s.setFilesList()
 }

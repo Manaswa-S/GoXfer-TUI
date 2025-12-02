@@ -136,10 +136,11 @@ func (s *Native) Rotate() error {
 
 func (s *Native) Log(level logger.Level, msg string, args ...any) {
 	s.logs <- &logger.Log{
-		Level:   level,
-		Time:    time.Now().UnixMilli(),
-		Message: msg,
-		Args:    args,
+		SessionID: s.sessid,
+		Level:     level,
+		Time:      time.Now().UnixMilli(),
+		Message:   msg,
+		Args:      args,
 	}
 }
 

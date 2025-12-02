@@ -28,7 +28,7 @@ type AppTUI struct {
 // Updater for sub-level pages
 type Updater struct {
 	switchPage  func(string)
-	setStatus   func(string)
+	setStatus   func(string, int)
 	setError    func(string, int)
 	setConfirm  func(string)
 	switchStage func(string)
@@ -101,6 +101,9 @@ func (ui *AppTUI) SetError(errTxt string, delay int) {
 		ui.layout.errorText.SetText(errTxt)
 	}
 	ui.app.QueueUpdateDraw(f)
+	if errTxt == "" || delay == -1 {
+		return
+	}
 	go func() {
 		if delay < 1 {
 			delay = 5
@@ -112,11 +115,24 @@ func (ui *AppTUI) SetError(errTxt string, delay int) {
 	}()
 }
 
-func (ui *AppTUI) SetStatus(txt string) {
+func (ui *AppTUI) SetStatus(txt string, delay int) {
 	f := func() {
 		ui.layout.statusText.SetText(txt)
 	}
 	ui.app.QueueUpdateDraw(f)
+	if txt == "" || delay == -1 {
+		return
+	}
+	// TODO: this is very bad
+	go func() {
+		if delay < 1 {
+			delay = 5
+		}
+		time.Sleep(time.Duration(delay) * time.Second)
+		ui.app.QueueUpdateDraw(func() {
+			ui.layout.errorText.SetText("")
+		})
+	}()
 }
 
 func (ui *AppTUI) SetConfirm(txt string) {

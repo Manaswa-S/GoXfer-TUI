@@ -36,11 +36,7 @@ func (s *Service) emitErr(errf *errs.Errorf) error {
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 func (s *Service) CreateBucket(pwd []byte, name string) (*CreateBucketS2Resp, error) {
-	if recommendation := utils.VerifyPassFormat(pwd); recommendation != "" {
-		return nil, s.emitErr(&errs.Errorf{
-			Message: recommendation,
-		})
-	}
+	
 	errMsg := "Failed to initiate new bucket. Try Again!"
 	// Try not to clear pwd too early as internals of 'opaque' do not copy but
 	// use the same instance of pwd, and clearing pwd can cause empty passwords

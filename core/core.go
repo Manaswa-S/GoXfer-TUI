@@ -31,6 +31,8 @@ type Core struct {
 	bucPass []byte
 	sessID  []byte // the main session id
 	sessKey []byte // the main session key
+
+	Expired func()
 }
 
 func NewCore(domainStr string, cipher cipher.Cipher) (*Core, error) {
@@ -153,6 +155,8 @@ func (s *Core) Hit(rKey RouteKey, queries QueryParams, headers HeaderParams, bod
 	}
 	defer resp.Body.Close()
 
+	s.checkStatus(resp)
+
 	respBody, err = io.ReadAll(resp.Body)
 	return
 }
@@ -238,6 +242,16 @@ func hash(data []byte, key []byte) ([]byte, error) {
 		return nil, err
 	}
 	return mac.Sum(nil), nil
+}
+
+func (s *Core) checkStatus(resp *http.Response) {
+	if resp.StatusCode == http.StatusUnauthorized {
+		if s.Expired != nil {
+			s.Expired()
+		} else {
+			panic("session expired and failed to restart")
+		}
+	}
 }
 
 // >>>

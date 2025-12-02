@@ -40,8 +40,13 @@ func NewStages(logger logger.Logger, app *tview.Application, core *core.Core, ci
 		constructors: make(map[string]func()),
 	}
 	s.registerConstructors()
+	s.core.Expired = s.Expired
 
 	return s
+}
+
+func (s *Stages) Expired() {
+	s.SwitchTo(pages.PAGE_L1_ENTRY)
 }
 
 func (s *Stages) InitStages() (*tview.Pages, error) {
@@ -81,5 +86,3 @@ func (s *Stages) registerConstructors() {
 		s.pages.AddPage(pages.PAGE_L1_INTERACTION, s.interaction.Flex, true, false)
 	}
 }
-
-// TODO: handle the errChan

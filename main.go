@@ -96,20 +96,6 @@ func newLogger(sessionId string) (logger.Logger, error) {
 	return logger, nil
 }
 
-// func cleanExit() {
-// 	if r := recover(); r != nil {
-// 		app.Stop()
-// 		time.Sleep(20 * time.Millisecond)
-
-// 		fmt.Print("\033[0m\033[?25h")
-// 		fmt.Println("Recovered from panic:", r)
-// 	} else {
-// 		app.Stop()
-// 		time.Sleep(20 * time.Millisecond)
-// 		fmt.Print("\033[0m\033[?25h")
-// 	}
-// }
-
 func init() {
 	// TODO: verify program checksums and all then pull all configs from server.
 }

@@ -1,3 +1,5 @@
 .env
 .goxfer.creds.json
 .goXfer.*
+goxfer.tui
+logs.json
