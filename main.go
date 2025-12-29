@@ -21,13 +21,8 @@ import (
 	All stdin, stdout and stderr operations should happen in here only.
 	That is to prevent gibberish to be printed as Application.Run owns them all during event loop's
 	runtime.
-
-	./home/mnswa
 */
-// TODO: idk !!
-// var app *tview.Application
 
-// TODO: write proper errors
 func main() {
 	fmt.Println("Starting GoXfer ... ")
 

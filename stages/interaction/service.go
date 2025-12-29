@@ -47,6 +47,28 @@ func (s *Service) Logout() {
 }
 
 // >>>
+func (s *Service) GetBucketData() (*GetBucketDataResp, error) {
+	errMsg := "Failed to get bucket data."
+	resp, respBody, err := s.core.Hit(core.Routes.BucketData, nil, nil, nil)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to get bucket data: %v", err),
+			Message: errMsg,
+		})
+	}
+
+	data := new(GetBucketDataResp)
+	err = json.Unmarshal(respBody, data)
+	if err != nil {
+		return nil, s.emitErr(&errs.Errorf{
+			Error:   fmt.Errorf("failed to unmarshal bucket data: %v", err),
+			Message: errMsg,
+		})
+	}
+
+	return data, nil
+}
+
 func (s *Service) GetFilesList() ([]FileInfoExtended, error) {
 	errMsg := "Failed to get files list. Try Again."
 	resp, respBody, err := s.core.Hit(core.Routes.FileList, nil, nil, nil)

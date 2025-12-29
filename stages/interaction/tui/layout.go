@@ -1,17 +1,23 @@
 package interactionui
 
 import (
+	"fmt"
+	"goxfer/tui/stages/interaction"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
 type Layout struct {
-	app  *tview.Application
-	flex *tview.Flex
+	app     *tview.Application
+	updater *Updater
+	service *interaction.Service
+	flex    *tview.Flex
 
 	// Elements for the layout
 	title     *tview.TextView
 	subtitles *tview.TextView
+	bucname   *tview.TextView
 
 	infoFlex *tview.Grid
 
@@ -23,10 +29,12 @@ type Layout struct {
 	tips *tview.TextView
 }
 
-func newLayout(app *tview.Application) *Layout {
+func newLayout(app *tview.Application, updater *Updater, service *interaction.Service) *Layout {
 	return &Layout{
-		app:  app,
-		flex: tview.NewFlex(),
+		app:     app,
+		updater: updater,
+		service: service,
+		flex:    tview.NewFlex(),
 	}
 }
 
@@ -35,7 +43,7 @@ func (s *Layout) initLayout() {
 	// Title
 	s.title = tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText("INTERACTION").
+		SetText("GoXfer - Stateless Data Transfer").
 		SetDynamicColors(true).
 		SetTextColor(tcell.ColorWhite)
 
@@ -43,6 +51,13 @@ func (s *Layout) initLayout() {
 	s.subtitles = tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetText("Stateless, Ephemeral, Zero-Overhead Transfers - Just the Payload.").
+		SetDynamicColors(true).
+		SetTextColor(tcell.ColorLightGray)
+
+	// Subtitles
+	s.bucname = tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetText("").
 		SetDynamicColors(true).
 		SetTextColor(tcell.ColorLightGray)
 
@@ -87,4 +102,17 @@ func (s *Layout) initLayout() {
 		AddItem(s.confirmText, 0, 0, 1, 1, 0, 0, false).
 		AddItem(s.errorText, 0, 1, 1, 1, 0, 0, false).
 		AddItem(s.statusText, 0, 2, 1, 1, 0, 0, false)
+
+	go s.getBucketData()
+}
+
+func (s *Layout) getBucketData() {
+	data, err := s.service.GetBucketData()
+	if err != nil {
+		s.updater.setError(err.Error(), 0)
+		return
+	}
+
+	s.bucname.SetText(fmt.Sprintf("INTERACTION: %s", data.Name))
+	s.app.QueueUpdateDraw(func() {})
 }

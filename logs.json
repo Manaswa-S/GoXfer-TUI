@@ -1,0 +1,42 @@
+{
+ "sessionId": "XhpAtu5c+pNdqob3BoMfIKa56Nmy7HMLq3Yw01BKL68=",
+ "level": "ERROR",
+ "time": 1764748242722,
+ "message": ": Get \"http://localhost:9090/api/v1/public/bucket/open/config\": dial tcp 127.0.0.1:9090: connect: connection refused: Failed to get configs from server.: false"
+}
+{
+ "sessionId": "XhpAtu5c+pNdqob3BoMfIKa56Nmy7HMLq3Yw01BKL68=",
+ "level": "ERROR",
+ "time": 1764748242722,
+ "message": ": failed to get opaque configs for opening bucket: Failed to open bucket. Failed to get configs from server.: false"
+}
+{
+ "sessionId": "XhpAtu5c+pNdqob3BoMfIKa56Nmy7HMLq3Yw01BKL68=",
+ "level": "ERROR",
+ "time": 1764748250441,
+ "message": ": Get \"http://localhost:9090/api/v1/public/bucket/open/config\": dial tcp 127.0.0.1:9090: connect: connection refused: Failed to get configs from server.: false"
+}
+{
+ "sessionId": "XhpAtu5c+pNdqob3BoMfIKa56Nmy7HMLq3Yw01BKL68=",
+ "level": "ERROR",
+ "time": 1764748250441,
+ "message": ": failed to get opaque configs for opening bucket: Failed to open bucket. Failed to get configs from server.: false"
+}
+{
+ "sessionId": "9R0zibyn6iGFkpeUc7xu2CoMLJNvDrXkV412rV+RwPg=",
+ "level": "ERROR",
+ "time": 1764749984950,
+ "message": ": unexpected end of JSON input: Failed to open bucket.: false"
+}
+{
+ "sessionId": "BqDLiJnQXo4npRLKmTtJbYn5HpuCCFMgE5fqzdfV7qo=",
+ "level": "ERROR",
+ "time": 1764750224154,
+ "message": ": unexpected end of JSON input: Failed to open bucket.: false"
+}
+{
+ "sessionId": "BreDKoMIJzYG85rpemjlRH+fxFInXmfw2rhFZW1wYhc=",
+ "level": "ERROR",
+ "time": 1764751995630,
+ "message": ": unexpected end of JSON input: Failed to open bucket.: false"
+}

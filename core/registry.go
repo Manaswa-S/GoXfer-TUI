@@ -30,6 +30,8 @@ var Routes = struct {
 
 	DeleteFile RouteKey
 
+	BucketData RouteKey
+
 	TestUpload   RouteKey
 	TestDownload RouteKey
 }{
@@ -53,6 +55,8 @@ var Routes = struct {
 	DownloadDigest: "DownDigest",
 
 	DeleteFile: "DelFile",
+
+	BucketData: "BucData",
 
 	TestUpload:   "TestUp",
 	TestDownload: "TestDown",
@@ -185,6 +189,12 @@ func (s *Core) register(domainStr string) error {
 		Routes.DeleteFile: {
 			Method: http.MethodDelete,
 			RPath:  "private/file/delete",
+			Auth:   true,
+		},
+
+		Routes.BucketData: {
+			Method: http.MethodGet,
+			RPath:  "private/bucket",
 			Auth:   true,
 		},
 	}

@@ -32,9 +32,8 @@ func (s *Menu) addItems() {
 	s.entryMenu = tview.NewList().
 		AddItem("Open Existing Bucket", "Open any of your existing bucket", '1', nil).
 		AddItem("Create New Bucket", "Start by creating a new bucket", '2', nil).
-		AddItem("Help", "Instructions and usage tips", '3', nil).
-		AddItem("About", "App information and version", '4', nil).
-		AddItem("Settings", "Configure preferences", '5', nil).
+		AddItem("About", "App information and version", '3', nil).
+		AddItem("Settings", "Configure preferences", '4', nil).
 		AddItem("Quit", "Exit goXfer", 'q', nil)
 
 	s.entryMenu.SetSelectedFunc(func(idx int, mainText, secondaryText string, shortcut rune) {
@@ -45,8 +44,7 @@ func (s *Menu) addItems() {
 			s.updater.switchPage(pages.Entry.CREATE)
 		case '3':
 		case '4':
-		case '5':
-			s.updater.switchPage(pages.Entry.SETTINGS)
+			// s.updater.switchPage(pages.Entry.SETTINGS)
 		case 'q':
 			s.app.Stop()
 		}

@@ -123,14 +123,13 @@ func (ui *AppTUI) SetStatus(txt string, delay int) {
 	if txt == "" || delay == -1 {
 		return
 	}
-	// TODO: this is very bad
 	go func() {
 		if delay < 1 {
 			delay = 5
 		}
 		time.Sleep(time.Duration(delay) * time.Second)
 		ui.app.QueueUpdateDraw(func() {
-			ui.layout.errorText.SetText("")
+			ui.layout.statusText.SetText("")
 		})
 	}()
 }

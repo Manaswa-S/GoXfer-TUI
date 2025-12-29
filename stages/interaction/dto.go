@@ -124,3 +124,9 @@ type DownloadDigestResp struct {
 	EncDataChecksum string `json:"dataChecksum"` // sha(Data), sha is already base64()
 	EncMetaChecksum string `json:"metaChecksum"` // sha(EncMeta)
 }
+
+// >>>>>
+
+type GetBucketDataResp struct {
+	Name string `json:"name"`
+}

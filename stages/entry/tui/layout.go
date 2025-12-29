@@ -33,7 +33,7 @@ func (s *Layout) initLayout() {
 	// Title
 	s.title = tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText("[::b]Welcome to goXfer !").
+		SetText("[::b]Welcome to GoXfer !").
 		SetDynamicColors(true).
 		SetTextColor(tcell.ColorWhite)
 

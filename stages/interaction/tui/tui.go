@@ -48,7 +48,7 @@ func NewAppTUI(app *tview.Application, service *interaction.Service) *AppTUI {
 		setConfirm: ui.SetConfirm,
 	}
 
-	ui.layout = newLayout(ui.app)
+	ui.layout = newLayout(ui.app, ui.updater, ui.service)
 	ui.layout.initLayout()
 
 	ui.files = newFiles(ui.app, ui.updater, ui.service)
@@ -63,7 +63,8 @@ func NewAppTUI(app *tview.Application, service *interaction.Service) *AppTUI {
 	ui.Flex.SetDirection(tview.FlexRow).
 		AddItem(tview.NewBox(), 1, 1, false).
 		AddItem(ui.layout.title, 1, 1, false).
-		AddItem(ui.layout.subtitles, 1, 1, false).
+		// AddItem(ui.layout.subtitles, 1, 1, false).
+		AddItem(ui.layout.bucname, 1, 1, false).
 		AddItem(tview.NewBox(), 1, 1, false).
 		//
 		AddItem(ui.pages, 0, 1, true).
@@ -126,7 +127,7 @@ func (ui *AppTUI) SetStatus(txt string, delay int) {
 		}
 		time.Sleep(time.Duration(delay) * time.Second)
 		ui.app.QueueUpdateDraw(func() {
-			ui.layout.errorText.SetText("")
+			ui.layout.statusText.SetText("")
 		})
 	}()
 }

@@ -3,3 +3,4 @@
 .goXfer.*
 goxfer.tui
 logs.json
+.bin/

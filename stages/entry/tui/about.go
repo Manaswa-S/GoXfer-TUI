@@ -1,4 +1,4 @@
-package auxiliaryui
+package entryui
 
 // import (
 // 	"github.com/rivo/tview"
