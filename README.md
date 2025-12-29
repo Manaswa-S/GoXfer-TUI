@@ -8,6 +8,8 @@ Consists of a Go backend and a terminal-first (TUI) client, intentionally avoidi
 
 ---
 > This is **not** a cloud storage clone. It is a systems-oriented project focused on cryptography, secure client-server design, and real-world deployment constraints.
+
+#### TUI Demo Video: <a href="https://github.com/Manaswa-S/GoXfer-TUI/releases/download/demo-v1/Screencast.from.03-12-25.02.29.36.PM.IST.webm">Link</a>
 ---
 
 ### Project Goals & Design Principles
@@ -20,6 +22,7 @@ Consists of a Go backend and a terminal-first (TUI) client, intentionally avoidi
 
 - **PAKE-Based Authentication**  
   OPAQUE for authentication, passwords are never revealed to the server and cannot be brute-forced offline even after a server compromise.
+  - Learn more about OPAQUE: <a href="https://blog.cloudflare.com/opaque-oblivious-passwords/">Link</a>
 
 - **Client-Dominated Security Model**  
   All security-critical operations (key derivation, encryption, and decryption) occur exclusively on the client.
@@ -100,16 +103,6 @@ Consists of a Go backend and a terminal-first (TUI) client, intentionally avoidi
   - Minimal serialization overhead
   
   Security is enforced without turning the system slow or fragile.
----
-
-## 🚫 What This Project Is NOT
-
-- Not a consumer cloud product
-- Not a frontend-heavy app
-- Not a crypto library showcase
-- Not a CRUD demo
-- Not security by obscurity
-
 ---
 
 ### Future Roadmap
