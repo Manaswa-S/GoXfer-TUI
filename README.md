@@ -1,190 +1,105 @@
-# GoXfer 🔐  
-**Zero-Trust, End-to-End Encrypted File Transfer System**
-
-GoXfer is a security-first file transfer system built in Go, designed around **zero-trust principles**, **client-side encryption**, and **minimal attack surface**.  
-It consists of a Go backend and a terminal-first (TUI) client, intentionally avoiding bloated UIs and implicit trust in servers.
-
-This is **not** a cloud storage clone. It is a systems-oriented project focused on cryptography, secure client–server design, and real-world deployment constraints.
+# GoXfer 
+### Client-Sealed, Stateless, Ephemeral, Zero-Trust, End-to-End Encrypted Data Storage System
 
 ---
 
-## TL;DR
-A zero-trust file transfer system where the server never sees plaintext, authentication avoids offline brute-force oracles, and all critical security decisions happen on the client.
+Security-first file transfer system designed around **zero-trust principles**, **client-side encryption**, and **minimal attack surface**.  
+Consists of a Go backend and a terminal-first (TUI) client, intentionally avoiding bloated UIs and implicit trust in servers.
+
+---
+> This is **not** a cloud storage clone. It is a systems-oriented project focused on cryptography, secure client-server design, and real-world deployment constraints.
+---
+
+### Project Goals & Design Principles
+
+- **Strict Zero-Server-Trust by Design**  
+  No plaintext, password-derived secrets, long-term cryptographic material, and assumptions about server honesty.
+
+- **Layered Cryptography**  
+  Data protection achieved through multiple cryptographic layers with key wrapping and separation of duties between keys.
+
+- **PAKE-Based Authentication**  
+  OPAQUE for authentication, passwords are never revealed to the server and cannot be brute-forced offline even after a server compromise.
+
+- **Client-Dominated Security Model**  
+  All security-critical operations (key derivation, encryption, and decryption) occur exclusively on the client.
+ 
+- **Terminal-First Interface**  
+  Focused, scriptable, and deterministic client. Avoids browser complexity and hidden behavior.
 
 ---
 
-## 🎯 Project Goals & Design Principles
+### Security Model
 
-- **Zero-Trust Architecture**  
-  The server is never trusted with plaintext data or long-term secrets.
+- **Threats Considered**
+  - Malicious or compromised server
+  - Database leaks
+  - Offline brute-force attacks
+  - Network interception (MITM)
+  - Replay attempts
 
-- **End-to-End Encryption**  
-  Files are encrypted on the client before transmission and decrypted only on the client.
-
-- **Zero-Knowledge Authentication**  
-  Authentication is designed to avoid password-derived server-side oracles.
-
-- **Minimal Attack Surface**  
-  Lean APIs, limited metadata exposure, and no unnecessary dependencies.
-
-- **Terminal-First UX**  
-  A TUI is used instead of a web UI for speed, focus, and scriptability.
-
-- **Production-oriented Design**  
-  Built with deployment, failure handling, and extensibility in mind.
+- **Security Guarantees**
+  - Server never sees plaintext files
+  - Server never stores password-equivalent secrets
+  - Encrypted data is useless if exfiltrated
+  - Authentication resists offline attacks
 
 ---
 
-## 🧠 System Architecture (High Level)
+### Overview
 
-GoXfer is structured as a **single coherent system** split cleanly into components:
+- **Cryptography Overview**
+  - **Client-Side Encryption**
+    - Files are encrypted before leaving the client
+  - **Key Hierarchy**
+    - Content Encryption Keys (CEKs)
+    - Key Encryption Keys (KEKs)
+    - Multiple wrapping layers
+  - **No Plaintext Keys at Rest**
+  - **Key Lifecycle Management**
+    - Creation -> Use -> Zeroization
+  
+  The design prioritizes **removal of trust**, not just stronger algorithms.
+---
 
-- **Client (TUI)**
-  - Key management
-  - Encryption / decryption
-  - Authentication
-  - User interaction
+- **Authentication & Authorization**
+  - Session-based access with replay protection
+  - Clear separation between authentication and encryption keys
+---
 
-- **Backend**
+- **Backend Responsibilities**
   - Authentication verification
-  - Encrypted blob storage
-  - Metadata handling
-  - Access control & rate limiting
-
-All communication happens over authenticated channels, with the backend acting as a **blind storage and routing layer**.
-
+  - Secure API endpoints
+  - Encrypted file and metadata storage
+  - Integrity validation
+  - Abuse prevention and rate limiting
+  - Logging without leaking sensitive data
+  
+  The backend treats all stored data as **opaque blobs**.
 ---
 
-## 🔐 Security Model
+- **TUI Responsibilities**
+  - Secure credential input
+  - Local key derivation and storage
+  - Encryption / decryption
+  - Upload and download orchestration
+  - Progress tracking and retries
+  - Atomic file handling on disk
 
-### Threats Considered
-- Malicious or compromised server
-- Database leaks
-- Offline brute-force attacks
-- Network interception (MITM)
-- Replay attempts
-
-### Security Guarantees
-- Server never sees plaintext files
-- Server never stores password-equivalent secrets
-- Encrypted data is useless if exfiltrated
-- Authentication resists offline attacks
-
-### Explicit Non-Goals
-- Protecting against a compromised client device
-- Hardware-level key extraction
-- Nation-state adversaries
-
+  The TUI is designed to be fast, minimal, and distraction-free.
 ---
 
-## 🔑 Cryptography Overview
-
-- **Client-Side Encryption**
-  - Files are encrypted before leaving the client
-- **Key Hierarchy**
-  - Data Encryption Keys (DEKs)
-  - Key Encryption Keys (KEKs)
-  - Multiple wrapping layers
-- **No Plaintext Keys at Rest**
-- **Key Lifecycle Management**
-  - Creation → Use → Zeroization
-
-The design prioritizes **removal of trust**, not just stronger algorithms.
-
+- **Failure Handling & Reliability**
+  - Chunked transfers
+  - Idempotent operations where possible
 ---
 
-## 🔐 Authentication & Authorization
-
-- Authentication follows **zero-knowledge principles**
-- Inspired by PAKE / OPAQUE-style approaches
-- Prevents offline brute-force even after server compromise
-- Session-based access with replay protection
-- Clear separation between authentication and encryption keys
-
----
-
-## 🖥 Backend Responsibilities
-
-- Authentication verification
-- Secure API endpoints
-- Encrypted file and metadata storage
-- Integrity validation
-- Abuse prevention and rate limiting
-- Logging without leaking sensitive data
-
-The backend treats all stored data as **opaque blobs**.
-
----
-
-## 💻 TUI Responsibilities
-
-- Secure credential input
-- Local key derivation and storage
-- Encryption / decryption
-- Upload and download orchestration
-- Progress tracking and retries
-- Atomic file handling on disk
-
-The TUI is designed to be fast, minimal, and distraction-free.
-
----
-
-## 🔄 Data Flow (Simplified)
-
-1. User authenticates via the TUI
-2. Keys are derived locally
-3. File is encrypted on the client
-4. Encrypted data is transmitted
-5. Backend stores opaque ciphertext
-6. Download reverses the process
-
-At no point does the server access plaintext.
-
----
-
-## 🧯 Failure Handling & Reliability
-
-- Network interruption recovery
-- Chunked transfers
-- Atomic file replacement
-- Idempotent operations where possible
-- Client-side retries without data corruption
-
----
-
-## ⚡ Performance Considerations
-
-- Streaming encryption (no full file buffering)
-- Controlled memory usage
-- Efficient Go concurrency
-- Minimal serialization overhead
-
-Security is enforced without turning the system slow or fragile.
-
----
-
-## 🧱 Project Structure Philosophy
-
-- Modular components
-- Clear package boundaries
-- No “god modules”
-- Easy to extend:
-  - New storage backends
-  - New authentication methods
-  - New client implementations
-
----
-
-## 🚀 Configuration & Deployment
-
-- Environment-based configuration
-- No hard dependency on managed services
-- Suitable for:
-  - Single VPS
-  - Dockerized deployment
-  - Cloud VMs
-- Secrets never hardcoded
-
+- **Performance Considerations**
+  - Controlled memory usage
+  - Efficient Go concurrency
+  - Minimal serialization overhead
+  
+  Security is enforced without turning the system slow or fragile.
 ---
 
 ## 🚫 What This Project Is NOT
@@ -197,42 +112,21 @@ Security is enforced without turning the system slow or fragile.
 
 ---
 
-## 📚 Learning Outcomes
+### Future Roadmap
 
-- Secure system design
-- Applied cryptography in real systems
-- Zero-trust architecture
-- Go networking and concurrency
-- TUI application design
-- Failure-aware backend development
+- **Per-File OPAQUE Authentication**  
+  OPAQUE-based authentication to individual file secrets, ensuring metadata and access are revealed only after complete authentication.
 
----
+- **Adaptive Rate Limiting**  
+  State-aware and behavior-based rate limiters to mitigate abuse without relying on naive request counting.
 
-## 🛣 Future Roadmap
-
-- Distributed backend support
-- Stronger PAKE integration
-- Audit-friendly logging
-- Multi-device key synchronization
-- Plugin-based storage layers
-- Optional web client (low priority)
+- **Sharded Storage with Server-Side Wrapping**  
+  Storage sharding and an additional server-level key wrapping layer to reduce blast radius.
 
 ---
 
-## 👥 Who This Project Is For
-
-- Backend engineers
-- Systems programmers
-- Security engineers
-- Infrastructure enthusiasts
-- Anyone bored of CRUD projects
-
----
-
-## ⚠ Disclaimer
+### Disclaimer
 
 This project is experimental and educational.  
 It has not been professionally audited.  
 Use at your own risk.
-
----
